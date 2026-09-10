@@ -16,6 +16,15 @@
   let printModalFile: PrinterFile | null = null;
 
   $: files = $printer.files;
+  $: machineStatusCode = Number($printer.state?.machine_status?.status ?? -1);
+  $: machineSubStatusCode = Number($printer.state?.machine_status?.sub_status ?? 0);
+  $: printWorkflowState = String($printer.state?.print_status?.state ?? '').toLowerCase();
+  $: timelapseDownloadReady = !$printer.connected || (printWorkflowState !== 'printing'
+    && printWorkflowState !== 'paused'
+    && (machineSubStatusCode === 3 || machineStatusCode === 0 || machineStatusCode === 1 || machineStatusCode === 4 || machineStatusCode === 16));
+  $: timelapseDownloadTitle = !$printer.connected
+    ? 'Download timelapse (printer status unknown)'
+    : 'Timelapse download is available when the printer is idle';
 
   async function loadFiles() {
     loading = true;
@@ -257,11 +266,19 @@
                     {#if activeTab === 'history'}
                       {@const tlPath = timelapsePath(file)}
                       {#if tlPath}
-                        <a class="print-btn download-btn" href={timelapseDownloadUrl(tlPath)} on:click|stopPropagation title="Download timelapse">
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                          </svg>
-                        </a>
+                        {#if timelapseDownloadReady}
+                          <a class="print-btn download-btn" href={timelapseDownloadUrl(tlPath)} on:click|stopPropagation title={timelapseDownloadTitle}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                              <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                          </a>
+                        {:else}
+                          <button class="print-btn download-btn" disabled title={timelapseDownloadTitle} on:click|stopPropagation>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                              <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                          </button>
+                        {/if}
                       {:else}
                         <span class="no-action">--</span>
                       {/if}
@@ -453,6 +470,12 @@
     transition: filter 0.15s;
   }
   .print-btn:hover { filter: brightness(1.2); }
+  .print-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.4);
+  }
+  .print-btn:disabled:hover { filter: grayscale(0.4); }
   a.print-btn:hover { text-decoration: none; color: var(--accent-hi); }
   .no-action { color: var(--muted2); font-size: 11px; }
 

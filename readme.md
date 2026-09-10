@@ -63,7 +63,7 @@ Die Anwendung enthält:
 - Start-Print-Sicherheitsabfrage
 - Canvas-Filament-Anzeige, Load/Unload-Aktionen und Slot-Bearbeitung
 - Temperatursteuerung für Düse und Heizbett
-- Timelapse-Anzeige in der Druckhistorie mit sicherem Download-Proxy, sofern die Firmware die Datei per HTTP bereitstellt
+- Timelapse-Anzeige in der Druckhistorie mit sicherem Download-Proxy, sofern der Drucker idle ist und die Firmware die Datei per HTTP bereitstellt
 - Kamera-Snapshot und Kamera-Stream
 - Obico-ML-basierte Spaghetti- und Fehldruck-Erkennung
 - Detection Score, Objekt-Boxen, Snapshot-Historie und Ignore-Zones
@@ -472,9 +472,9 @@ Bitte ändere Temperaturen während eines laufenden Drucks nur bewusst. Die Ober
 
 ### Timelapse-Videos
 
-Die Druckhistorie zeigt Timelapse-Einträge, wenn der Drucker `time_lapse_video_url` meldet. Die Weboberfläche enthält einen sicheren Download-Proxy unter `/api/printer/timelapse`, der bekannte Datei-Endpunkte des Druckers probiert und Kamera-MJPEG-Streams ausdrücklich verwirft.
+Die Druckhistorie zeigt Timelapse-Einträge, wenn der Drucker `time_lapse_video_url` meldet. Die Weboberfläche enthält einen sicheren Download-Proxy unter `/api/printer/timelapse`, der den authentifizierten Firmware-Endpunkt `/download?X-Token=...&file_name=...` nutzt und bekannte Fallback-Endpunkte probiert. Der Zugriffscode bleibt dabei serverseitig und wird nicht in der Browser-URL angezeigt.
 
-Beim getesteten Firmwarestand liefert die Historie zwar `video/...mp4`-Pfade, die MP4-Dateien wurden aber nicht über die bekannten HTTP-Download-Endpunkte freigegeben. In diesem Fall meldet der Proxy sauber `timelapse unavailable`, statt versehentlich den Kamerastream als Datei zu speichern.
+Timelapse-Videos können laut Drucker-Firmware nur generiert oder heruntergeladen werden, wenn der Drucker nicht beschäftigt ist. Während Druck, Pause, Homing, Preheating, Filament-Operation, Video-Erstellung oder anderen Busy-Zuständen sperren UI und API den Download bewusst mit einer klaren Meldung. Wenn der Drucker idle, completed oder canceled meldet und die Firmware die Datei bereitstellt, wird die MP4 über den Proxy heruntergeladen.
 
 ### Kamera und Reconnect
 
@@ -509,7 +509,7 @@ Wichtige Endpunkte:
 | `POST /api/printer/temperature` | Düsen- oder Heizbettziel setzen |
 | `GET /api/printer/files` | Druckdateien lesen |
 | `GET /api/printer/history` | Druckhistorie lesen |
-| `GET /api/printer/timelapse` | Timelapse-Datei sicher über die Weboberfläche herunterladen, sofern verfügbar |
+| `GET /api/printer/timelapse` | Timelapse-Datei sicher über die Weboberfläche herunterladen, sofern der Drucker idle ist und die Datei verfügbar ist |
 | `POST /api/printer/canvas/load` | gewählten Canvas-Slot laden |
 | `POST /api/printer/canvas/unload` | gewählten Canvas-Slot entladen |
 | `POST /api/printer/canvas/slot` | Canvas-Slotdaten bearbeiten |
@@ -651,7 +651,7 @@ Mögliche nächste Ausbaustufen:
 - mehrsprachige Übersetzungsabdeckung für alle neuen UI-Texte
 - Snapshot-Galerie mit Filter nach Druckjob
 - erweiterte AI-Regeln pro Filament, Drucktyp oder Kameraansicht
-- verifizierter Timelapse-Dateidownload, sobald der genaue Firmware-Endpunkt bekannt ist
+- zusätzliche Timelapse-Funktionen wie serverseitiges Generieren oder automatische Archivierung
 - Webhook-Signaturen
 - MQTT-Diagnoseansicht
 - Export von Detection-Berichten
@@ -738,7 +738,7 @@ The application includes:
 - Start-print safety confirmation
 - Canvas filament display, load/unload actions, and slot editing
 - Nozzle and heated bed temperature controls
-- Timelapse entries in print history with a safe download proxy when firmware exposes the file over HTTP
+- Timelapse entries in print history with a safe download proxy when the printer is idle and firmware exposes the file over HTTP
 - Camera snapshot and stream
 - Obico ML based spaghetti and print-failure detection
 - Detection score, object boxes, snapshot history, and ignore zones
@@ -1147,9 +1147,9 @@ Change temperatures during a running print only deliberately. The UI sends the t
 
 ### Timelapse Videos
 
-Print history shows timelapse entries when the printer reports `time_lapse_video_url`. The web UI includes a safe download proxy at `/api/printer/timelapse`; it tries known printer file endpoints and explicitly rejects camera MJPEG streams.
+Print history shows timelapse entries when the printer reports `time_lapse_video_url`. The web UI includes a safe download proxy at `/api/printer/timelapse`; it uses the authenticated firmware endpoint `/download?X-Token=...&file_name=...` and tries known fallback endpoints. The access code stays on the server and is not exposed in the browser URL.
 
-On the tested firmware, history reports `video/...mp4` paths, but the MP4 files were not exposed through the known HTTP download endpoints. In that case the proxy returns a clear `timelapse unavailable` error instead of saving the live camera stream as a wrong file.
+According to the printer firmware behavior, timelapse videos can only be generated or downloaded when the printer is not busy. During printing, pausing, homing, preheating, filament operations, video composition, or other busy states, both UI and API intentionally block the download with a clear message. When the printer reports idle, completed, or canceled and the firmware exposes the file, the MP4 is downloaded through the proxy.
 
 ### Camera and Reconnect
 
@@ -1184,7 +1184,7 @@ Important endpoints:
 | `POST /api/printer/temperature` | set nozzle or bed target |
 | `GET /api/printer/files` | read print files |
 | `GET /api/printer/history` | read print history |
-| `GET /api/printer/timelapse` | safely download a timelapse file through the web UI when available |
+| `GET /api/printer/timelapse` | safely download a timelapse file through the web UI when the printer is idle and the file is available |
 | `POST /api/printer/canvas/load` | load the selected Canvas slot |
 | `POST /api/printer/canvas/unload` | unload the selected Canvas slot |
 | `POST /api/printer/canvas/slot` | edit Canvas slot data |
@@ -1326,7 +1326,7 @@ Possible next steps:
 - broader translation coverage for all new UI text
 - snapshot gallery filtered by print job
 - advanced AI rules per filament, print type, or camera angle
-- verified timelapse file download once the exact firmware endpoint is known
+- additional timelapse features such as server-side generation or automatic archiving
 - webhook signatures
 - MQTT diagnostics view
 - exportable detection reports

@@ -11,7 +11,7 @@ use tracing::debug;
 use super::router::AppState;
 use crate::error::AppError;
 use crate::printer::manager::StartPrintSlotMap;
-use crate::printer::state::PrintState;
+use crate::printer::state::{normalize_machine_status, NormalizedStatus, PrintState};
 
 #[derive(serde::Serialize)]
 pub struct PrinterStatusResponse {
@@ -362,6 +362,20 @@ fn validate_canvas_ids(canvas_id: i64, tray_id: i64, tray_slot: i64) -> Result<(
     Ok(())
 }
 
+fn timelapse_status_allowed(status: &NormalizedStatus, print_state: &PrintState) -> bool {
+    if matches!(print_state, PrintState::Printing | PrintState::Paused) {
+        return false;
+    }
+
+    matches!(
+        status,
+        NormalizedStatus::Idle
+            | NormalizedStatus::Printing
+            | NormalizedStatus::PrintCompleted
+            | NormalizedStatus::Canceled
+    )
+}
+
 pub async fn canvas_load(
     State(state): State<AppState>,
     Json(req): Json<CanvasTrayRequest>,
@@ -486,7 +500,30 @@ pub async fn download_timelapse(
         return Err(AppError::Validation("timelapse path must start with video/ or picture/".to_string()));
     }
 
-    let printer_ip = state.manager.printer_ip().await;
+    {
+        let ps = state.printer_state.read().await;
+        if ps.connected {
+            let machine_status = normalize_machine_status(
+                ps.full.machine_status.status,
+                ps.full.machine_status.sub_status,
+            );
+            let print_state = ps.print_state();
+            if !timelapse_status_allowed(&machine_status, &print_state) {
+                return Err(AppError::Validation(format!(
+                    "Timelapse download is only available when the printer is idle (current status: {})",
+                    machine_status.label()
+                )));
+            }
+        }
+    }
+
+    let (printer_ip, token) = {
+        let config = state.config.read().await;
+        (
+            config.printer.ip.trim().to_string(),
+            config.printer_password().to_string(),
+        )
+    };
     if printer_ip.trim().is_empty() {
         return Err(crate::error::PrinterError::NotConnected.into());
     }
@@ -495,14 +532,20 @@ pub async fn download_timelapse(
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(crate::error::PrinterError::from)?;
-    let candidates = [
+    let mut candidates = Vec::new();
+    let mut download_url = reqwest::Url::parse(&format!("http://{printer_ip}/download"))
+        .map_err(|_| AppError::Validation("invalid printer url".to_string()))?;
+    download_url
+        .query_pairs_mut()
+        .append_pair("X-Token", &token)
+        .append_pair("file_name", raw_path);
+    candidates.push(download_url);
+
+    for base in [
         format!("http://{printer_ip}/downloadFile/"),
         format!("http://{printer_ip}/download/"),
         format!("http://{printer_ip}/"),
-    ];
-    let mut last_status = None;
-    let mut selected = None;
-    for base in candidates {
+    ] {
         let mut url = reqwest::Url::parse(&base)
             .map_err(|_| AppError::Validation("invalid printer url".to_string()))?;
         let prefix = url.path().trim_matches('/');
@@ -512,11 +555,17 @@ pub async fn download_timelapse(
             format!("{prefix}/{raw_path}")
         };
         url.set_path(&path);
-        let resp = client
-            .get(url)
-            .send()
-            .await
-            .map_err(crate::error::PrinterError::from)?;
+        candidates.push(url);
+    }
+
+    let mut last_status = None;
+    let mut selected = None;
+    for base in candidates {
+        let mut request = client.get(base);
+        if !token.is_empty() {
+            request = request.header("X-Token", &token);
+        }
+        let resp = request.send().await.map_err(crate::error::PrinterError::from)?;
         if !resp.status().is_success() {
             last_status = Some(resp.status());
             continue;
