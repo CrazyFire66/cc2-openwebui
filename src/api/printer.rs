@@ -403,45 +403,12 @@ pub async fn canvas_unload(
 }
 
 pub async fn canvas_set_slot(
-    State(state): State<AppState>,
-    Json(req): Json<CanvasSlotRequest>,
+    State(_state): State<AppState>,
+    Json(_req): Json<CanvasSlotRequest>,
 ) -> Result<Json<Value>, AppError> {
-    validate_canvas_ids(req.canvas_id, req.tray_id, req.tray_slot)?;
-    let ps = state.printer_state.read().await;
-    ensure_canvas_safe(&*ps)?;
-    drop(ps);
-
-    let color = req
-        .filament_color
-        .unwrap_or_default()
-        .trim()
-        .trim_start_matches('#')
-        .to_string();
-    if !color.is_empty() && (color.len() != 6 || !color.chars().all(|c| c.is_ascii_hexdigit())) {
-        return Err(AppError::Validation("filament_color must be a 6 digit hex color".to_string()));
-    }
-
-    let mut info = serde_json::Map::new();
-    info.insert("filament_name".to_string(), serde_json::json!(req.filament_name.unwrap_or_default()));
-    info.insert("filament_type".to_string(), serde_json::json!(req.filament_type.unwrap_or_default()));
-    info.insert("filament_color".to_string(), serde_json::json!(color));
-    info.insert("brand".to_string(), serde_json::json!(req.brand.unwrap_or_default()));
-    info.insert("filament_code".to_string(), serde_json::json!(req.filament_code.unwrap_or_default()));
-    if let Some(v) = req.min_nozzle_temp {
-        info.insert("min_nozzle_temp".to_string(), serde_json::json!(v.clamp(0, 350)));
-    }
-    if let Some(v) = req.max_nozzle_temp {
-        info.insert("max_nozzle_temp".to_string(), serde_json::json!(v.clamp(0, 350)));
-    }
-
-    debug!("API: canvas_set_slot canvas={} tray={} slot={}", req.canvas_id, req.tray_id, req.tray_slot);
-    state.manager.canvas_set_tray_info(
-        req.canvas_id,
-        req.tray_id,
-        req.tray_slot,
-        serde_json::Value::Object(info),
-    ).await?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Err(AppError::Validation(
+        "Canvas slot editing is temporarily disabled; load and unload remain available".to_string(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -565,7 +532,9 @@ pub async fn download_timelapse(
         if !token.is_empty() {
             request = request.header("X-Token", &token);
         }
-        let resp = request.send().await.map_err(crate::error::PrinterError::from)?;
+        let resp = request.send().await.map_err(|err| {
+            AppError::Validation(format!("timelapse unavailable: {}", err.without_url()))
+        })?;
         if !resp.status().is_success() {
             last_status = Some(resp.status());
             continue;

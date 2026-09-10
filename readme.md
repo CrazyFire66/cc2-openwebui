@@ -447,17 +447,16 @@ Bitte beachte:
 
 ### Canvas-Filament
 
-Die Oberfläche zeigt Canvas-Filament-Informationen und erlaubt Bearbeitung, wenn der Drucker die entsprechenden Daten bereitstellt. Diese Funktion ist hilfreich, wenn Materialzuordnung oder Spuleninformationen im UI korrigiert werden sollen.
+Die Oberfläche zeigt Canvas-Filament-Informationen und erlaubt Laden sowie Entladen der Slots, wenn der Drucker die entsprechenden Daten bereitstellt. Die direkte Slot-Bearbeitung ist aktuell absichtlich deaktiviert, weil sie bei manchen CANVAS/Firmware-Kombinationen den CANVAS in einen fehlerhaften Zustand bringen kann.
 
 Unterstützt sind:
 
 - Slot auswählen
 - Filament laden
 - Filament entladen
-- Slot-Daten bearbeiten: Name, Typ, Marke, Filament-Code, Farbe sowie minimale und maximale Düsentemperatur
 - Auto-Refill ein- oder ausschalten
 
-Load, Unload und Slot-Bearbeitung sind während eines aktiven oder pausierten Drucks absichtlich gesperrt. Je nach Firmwarestand können außerdem nicht alle Canvas-Kommandos verfügbar sein; in diesem Fall zeigt die Oberfläche die Fehlermeldung des Druckers.
+Load und Unload sind während eines aktiven oder pausierten Drucks absichtlich gesperrt. Die Bearbeitung von Slot-Daten bleibt vorerst ausgeschaltet, bis der sichere Firmware-Ablauf verifiziert ist. Je nach Firmwarestand können außerdem nicht alle Canvas-Kommandos verfügbar sein; in diesem Fall zeigt die Oberfläche die Fehlermeldung des Druckers.
 
 ### Temperatursteuerung
 
@@ -472,7 +471,9 @@ Bitte ändere Temperaturen während eines laufenden Drucks nur bewusst. Die Ober
 
 ### Timelapse-Videos
 
-Die Druckhistorie zeigt Timelapse-Einträge, wenn der Drucker `time_lapse_video_url` meldet. Die Weboberfläche enthält einen sicheren Download-Proxy unter `/api/printer/timelapse`, der den authentifizierten Firmware-Endpunkt `/download?X-Token=...&file_name=...` nutzt und bekannte Fallback-Endpunkte probiert. Der Zugriffscode bleibt dabei serverseitig und wird nicht in der Browser-URL angezeigt.
+Die Druckhistorie zeigt Timelapse-Einträge, wenn der Drucker `time_lapse_video_url` meldet. Damit diese Datei existiert, muss Timelapse bereits im Slicer bzw. beim Export des Druckjobs aktiviert werden. Nach dem Druck muss das Video in der Video-Liste des Druckers/Slicers ausgewählt und exportiert bzw. generiert werden; erst danach kann die Weboberfläche die MP4 herunterladen.
+
+Die Weboberfläche enthält einen sicheren Download-Proxy unter `/api/printer/timelapse`, der den authentifizierten Firmware-Endpunkt `/download?X-Token=...&file_name=...` nutzt und bekannte Fallback-Endpunkte probiert. Der Zugriffscode bleibt dabei serverseitig und wird nicht in der Browser-URL angezeigt.
 
 Timelapse-Videos können laut Drucker-Firmware nur generiert oder heruntergeladen werden, wenn der Drucker nicht beschäftigt ist. Während Druck, Pause, Homing, Preheating, Filament-Operation, Video-Erstellung oder anderen Busy-Zuständen sperren UI und API den Download bewusst mit einer klaren Meldung. Wenn der Drucker idle, completed oder canceled meldet und die Firmware die Datei bereitstellt, wird die MP4 über den Proxy heruntergeladen.
 
@@ -1122,17 +1123,16 @@ Please remember:
 
 ### Canvas Filament
 
-The UI displays Canvas filament information and allows editing when the printer exposes the corresponding data. This is useful for correcting material assignments or spool information inside the UI.
+The UI displays Canvas filament information and allows loading and unloading slots when the printer exposes the corresponding data. Direct slot editing is intentionally disabled for now because it can put some CANVAS/firmware combinations into a bad state.
 
 Supported actions:
 
 - select a slot
 - load filament
 - unload filament
-- edit slot data: name, type, brand, filament code, color, and min/max nozzle temperature
 - enable or disable Auto Refill
 
-Load, unload, and slot editing are intentionally disabled during active or paused prints. Depending on firmware version, not every Canvas command may be available; in that case the UI shows the printer/API error.
+Load and unload are intentionally disabled during active or paused prints. Slot data editing remains switched off until the safe firmware workflow is verified. Depending on firmware version, not every Canvas command may be available; in that case the UI shows the printer/API error.
 
 ### Temperature Controls
 
@@ -1147,7 +1147,9 @@ Change temperatures during a running print only deliberately. The UI sends the t
 
 ### Timelapse Videos
 
-Print history shows timelapse entries when the printer reports `time_lapse_video_url`. The web UI includes a safe download proxy at `/api/printer/timelapse`; it uses the authenticated firmware endpoint `/download?X-Token=...&file_name=...` and tries known fallback endpoints. The access code stays on the server and is not exposed in the browser URL.
+Print history shows timelapse entries when the printer reports `time_lapse_video_url`. For that file to exist, timelapse must first be enabled in the slicer or during print-job export. After printing, the video must be selected in the printer/slicer video list and exported or generated; only then can the web UI download the MP4.
+
+The web UI includes a safe download proxy at `/api/printer/timelapse`; it uses the authenticated firmware endpoint `/download?X-Token=...&file_name=...` and tries known fallback endpoints. The access code stays on the server and is not exposed in the browser URL.
 
 According to the printer firmware behavior, timelapse videos can only be generated or downloaded when the printer is not busy. During printing, pausing, homing, preheating, filament operations, video composition, or other busy states, both UI and API intentionally block the download with a clear message. When the printer reports idle, completed, or canceled and the firmware exposes the file, the MP4 is downloaded through the proxy.
 

@@ -66,9 +66,14 @@
   let selected = 0;
   $: selectedTray = trayList[selected];
   $: selectedTrayId = selectedTray?.tray_id ?? -1;
-  $: canEditSlot = connected && !activePrint && !!selectedTray && selectedTrayId >= 0;
-  $: canLoadSlot = canEditSlot && loadedSlot !== selected;
-  $: canUnloadSlot = canEditSlot && loadedSlot === selected;
+  const canvasSlotEditingEnabled = false;
+  $: canOperateSlot = connected && !activePrint && !!selectedTray && selectedTrayId >= 0;
+  $: canEditSlot = canvasSlotEditingEnabled && canOperateSlot;
+  $: canLoadSlot = canOperateSlot && loadedSlot !== selected;
+  $: canUnloadSlot = canOperateSlot && loadedSlot === selected;
+  $: editSlotTitle = canvasSlotEditingEnabled
+    ? activePrint ? 'Disabled while a print is active' : 'Edit selected slot'
+    : 'Canvas slot editing is temporarily disabled';
 
   let actionPending: 'load' | 'unload' | 'save' | null = null;
   let editOpen = false;
@@ -275,7 +280,7 @@
           </svg>
           {actionPending === 'unload' ? 'Unloading...' : 'Unload'}
         </button>
-        <button class="btn block" disabled={!canEditSlot || actionPending !== null} on:click={openEdit} title={activePrint ? 'Disabled while a print is active' : 'Edit selected slot'}>
+        <button class="btn block" disabled={!canEditSlot || actionPending !== null} on:click={openEdit} title={editSlotTitle}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
           </svg>
