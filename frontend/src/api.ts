@@ -267,6 +267,11 @@ export async function setSpeedMode(mode: number): Promise<void> {
   if (!res.ok) await apiError(res, 'Failed to set speed mode');
 }
 
+export async function setTemperatures(targets: { nozzle?: number; bed?: number }): Promise<void> {
+  const res = await postJson(`${BASE}/api/printer/temperature`, targets);
+  if (!res.ok) await apiError(res, 'Failed to set temperature');
+}
+
 export interface StartPrintOptions {
   plate?: 'textured' | 'smooth';
   tray_id?: number | null;
@@ -320,6 +325,10 @@ export interface HistoryTask {
   size?: number;
   file_size?: number;
   total_layer?: number;
+  time_lapse_video_status?: number;
+  time_lapse_video_url?: string;
+  time_lapse_video_size?: number;
+  time_lapse_video_duration?: number;
   [key: string]: unknown;
 }
 
@@ -338,6 +347,41 @@ export async function refreshCanvas(): Promise<Record<string, unknown>> {
 export async function setCanvasAutoRefill(enabled: boolean): Promise<void> {
   const res = await postJson(`${BASE}/api/printer/canvas/auto-refill`, { enabled });
   if (!res.ok) await apiError(res, 'Failed to set auto-refill');
+}
+
+export interface CanvasTrayPayload {
+  canvas_id: number;
+  tray_id: number;
+  tray_slot: number;
+}
+
+export interface CanvasSlotPayload extends CanvasTrayPayload {
+  filament_name?: string;
+  filament_type?: string;
+  filament_color?: string;
+  brand?: string;
+  filament_code?: string;
+  min_nozzle_temp?: number;
+  max_nozzle_temp?: number;
+}
+
+export async function canvasLoad(payload: CanvasTrayPayload): Promise<void> {
+  const res = await postJson(`${BASE}/api/printer/canvas/load`, payload);
+  if (!res.ok) await apiError(res, 'Failed to load filament');
+}
+
+export async function canvasUnload(payload: CanvasTrayPayload): Promise<void> {
+  const res = await postJson(`${BASE}/api/printer/canvas/unload`, payload);
+  if (!res.ok) await apiError(res, 'Failed to unload filament');
+}
+
+export async function saveCanvasSlot(payload: CanvasSlotPayload): Promise<void> {
+  const res = await postJson(`${BASE}/api/printer/canvas/slot`, payload);
+  if (!res.ok) await apiError(res, 'Failed to save filament slot');
+}
+
+export function timelapseDownloadUrl(path: string): string {
+  return `${BASE}/api/printer/timelapse?path=${encodeURIComponent(path)}`;
 }
 
 export async function getThumbnail(filename: string, storage = 'local'): Promise<{ thumbnail: string }> {

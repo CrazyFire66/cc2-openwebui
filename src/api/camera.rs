@@ -29,20 +29,19 @@ pub async fn snapshot(State(state): State<AppState>) -> Response<Body> {
 
 /// mjpeg relay
 pub async fn stream(State(state): State<AppState>) -> Response<Body> {
+    let first_frame = state.frame_buffer.read().await.clone().map(Bytes::from);
     let rx = state.frame_broadcast.subscribe();
 
-    let mjpeg = stream::unfold(rx, |mut rx| async move {
+    let mjpeg = stream::unfold((rx, first_frame), |(mut rx, mut first_frame)| async move {
+        if let Some(frame) = first_frame.take() {
+            let chunk = encode_mjpeg_chunk(frame);
+            return Some((Ok::<_, std::convert::Infallible>(chunk), (rx, None)));
+        }
         loop {
             match rx.recv().await {
                 Ok(frame) => {
-                    let header = format!(
-                        "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
-                        frame.len()
-                    );
-                    let mut chunk = header.into_bytes();
-                    chunk.extend_from_slice(&frame);
-                    chunk.extend_from_slice(b"\r\n");
-                    return Some((Ok::<_, std::convert::Infallible>(Bytes::from(chunk)), rx));
+                    let chunk = encode_mjpeg_chunk(frame);
+                    return Some((Ok::<_, std::convert::Infallible>(chunk), (rx, None)));
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => return None,
@@ -56,6 +55,17 @@ pub async fn stream(State(state): State<AppState>) -> Response<Body> {
         .header("X-Accel-Buffering", "no")
         .body(Body::from_stream(mjpeg))
         .unwrap()
+}
+
+fn encode_mjpeg_chunk(frame: Bytes) -> Bytes {
+    let header = format!(
+        "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+        frame.len()
+    );
+    let mut chunk = header.into_bytes();
+    chunk.extend_from_slice(&frame);
+    chunk.extend_from_slice(b"\r\n");
+    Bytes::from(chunk)
 }
 
 /// camera status

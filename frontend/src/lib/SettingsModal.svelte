@@ -39,14 +39,6 @@
     } catch {
       // fallback defaults
     }
-
-    // load ui_settings from localStorage
-    const stored = localStorage.getItem('ui_settings');
-    if (stored) {
-      try {
-        ui_settings.set(JSON.parse(stored));
-      } catch { /* ignore */ }
-    }
   });
 
   async function saveSettings() {

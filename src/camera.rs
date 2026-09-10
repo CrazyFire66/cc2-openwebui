@@ -62,6 +62,8 @@ pub fn spawn_frame_grabber(
 
             let url = format!("http://{}:8080/?action=stream", camera_ip);
             info!("[grabber] connecting to {url}");
+            status_clone.connected.store(false, Ordering::Relaxed);
+            let _ = connected_tx.send(false);
 
             let client = match reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(5))
@@ -79,13 +81,12 @@ pub fn spawn_frame_grabber(
             match client.get(&url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     info!("[grabber] stream connected");
-                    status_clone.connected.store(true, Ordering::Relaxed);
-                    let _ = connected_tx.send(true);
 
                     let stream_start = std::time::Instant::now();
                     let mut stream = resp.bytes_stream();
                     let mut buf: Vec<u8> = Vec::with_capacity(128 * 1024);
                     let mut frames: u64 = 0;
+                    let mut announced = false;
 
                     // 15s read timeout: MJPEG can stall without closing
                     loop {
@@ -95,6 +96,11 @@ pub fn spawn_frame_grabber(
 
                                 while let Some(frame) = try_extract_frame(&mut buf) {
                                     frames += 1;
+                                    if !announced {
+                                        announced = true;
+                                        status_clone.connected.store(true, Ordering::Relaxed);
+                                        let _ = connected_tx.send(true);
+                                    }
                                     if frames == 1 || frames % 60 == 0 {
                                         debug!("[grabber] frame #{frames} ({} bytes)", frame.len());
                                     }

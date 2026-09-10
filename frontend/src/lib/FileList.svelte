@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { printer, showToast } from '../stores';
-  import { getFiles, getHistory, startPrint, uploadGcode, type HistoryTask } from '../api';
+  import { getFiles, getHistory, startPrint, timelapseDownloadUrl, uploadGcode, type HistoryTask } from '../api';
   import type { PrinterFile } from '../stores';
   import { toErrorMessage } from './errors';
   import PrintModal from './PrintModal.svelte';
@@ -120,6 +120,11 @@
     return base.length > 40 ? '...' + base.slice(-39) : base;
   }
 
+  function timelapsePath(file: PrinterFile): string {
+    const path = file.time_lapse_video_url;
+    return typeof path === 'string' && path.trim() ? path : '';
+  }
+
   let collapsed = true;
   let uploading = false;
   let uploadInput: HTMLInputElement;
@@ -235,7 +240,7 @@
             </thead>
             <tbody>
               {#each displayFiles as file}
-                <tr class="file-row" on:click={() => openPrintModal(file)}>
+                <tr class="file-row" on:click={() => activeTab !== 'history' && openPrintModal(file)}>
                   <td class="col-name" data-label="File">
                     <div class="filename-cell">
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -248,12 +253,25 @@
                   <td class="col-size mono" data-label="Size">{formatSize(+(file.size ?? file.file_size ?? 0))}</td>
                   <td class="col-layer mono" data-label="Layers">{file.total_layer ?? file.layer ?? file.layers ?? '--'}</td>
                   <td class="col-date" data-label="Created">{formatDate(+(file.create_time ?? file.created ?? 0))}</td>
-                  <td class="col-action" data-label="Print">
-                    <button class="print-btn" on:click|stopPropagation={() => openPrintModal(file)} title="Print this file">
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path d="M2.5 1.5l8 4.5-8 4.5V1.5z" fill="currentColor"/>
-                      </svg>
-                    </button>
+                  <td class="col-action" data-label={activeTab === 'history' ? 'Timelapse' : 'Print'}>
+                    {#if activeTab === 'history'}
+                      {@const tlPath = timelapsePath(file)}
+                      {#if tlPath}
+                        <a class="print-btn download-btn" href={timelapseDownloadUrl(tlPath)} on:click|stopPropagation title="Download timelapse">
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        </a>
+                      {:else}
+                        <span class="no-action">--</span>
+                      {/if}
+                    {:else}
+                      <button class="print-btn" on:click|stopPropagation={() => openPrintModal(file)} title="Print this file">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M2.5 1.5l8 4.5-8 4.5V1.5z" fill="currentColor"/>
+                        </svg>
+                      </button>
+                    {/if}
                   </td>
                 </tr>
               {/each}
@@ -435,6 +453,8 @@
     transition: filter 0.15s;
   }
   .print-btn:hover { filter: brightness(1.2); }
+  a.print-btn:hover { text-decoration: none; color: var(--accent-hi); }
+  .no-action { color: var(--muted2); font-size: 11px; }
 
   @media (max-width: 560px) {
     .card-header {

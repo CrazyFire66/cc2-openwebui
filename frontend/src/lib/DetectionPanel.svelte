@@ -547,7 +547,8 @@
     border-radius: 50%;
     transition: transform 0.2s, background 0.2s;
   }
-  input:checked + .knob::before { transform: translateX(16px); background: var(--text); }
+  input:checked + .knob { background: var(--accent-dim); border-color: rgba(45,135,240,0.45); }
+  input:checked + .knob::before { transform: translateX(16px); background: var(--accent); }
 
   /* body */
   .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }

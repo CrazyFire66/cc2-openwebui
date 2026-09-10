@@ -61,7 +61,9 @@ Die Anwendung enthält:
 - Deutsch/Englisch-Umschaltung in der Oberfläche
 - Verbesserte mobile und responsive Darstellung
 - Start-Print-Sicherheitsabfrage
-- Canvas-Filament-Anzeige und Bearbeitung
+- Canvas-Filament-Anzeige, Load/Unload-Aktionen und Slot-Bearbeitung
+- Temperatursteuerung für Düse und Heizbett
+- Timelapse-Anzeige in der Druckhistorie mit sicherem Download-Proxy, sofern die Firmware die Datei per HTTP bereitstellt
 - Kamera-Snapshot und Kamera-Stream
 - Obico-ML-basierte Spaghetti- und Fehldruck-Erkennung
 - Detection Score, Objekt-Boxen, Snapshot-Historie und Ignore-Zones
@@ -69,12 +71,14 @@ Die Anwendung enthält:
 - Automatische Pause bei bestätigtem Fehler-Risiko
 - Benachrichtigungen über ntfy, Discord, Telegram und Webhook
 - Telegram-Nachrichten an Personen, Gruppen und optional Foren-Topics
+- Telegram-Kommandos für Statusabfragen mit oder ohne Kamerabild
 - Optionales Bild bei AI-Fehlermeldungen über Telegram
 - Konfigurierbare Status-, Start-, Stopp-, Pause-, Resume- und Fortschrittsmeldungen
 - Fortschrittsmeldungen in Prozent-Abschnitten
 - JSON-Export und JSON-Import der Einstellungen
 - Debug-Seite für Verbindung, Netzwerk, Detection und Notification-Status
 - Update-Check
+- Apple-Touch-Icon für iPhone/iPad Home-Screen
 - Lokale Speicherung von Einstellungen, Events und Detection-Snapshots
 
 ### Was AI Detection kann
@@ -160,6 +164,13 @@ Hinweise:
 - Für Gruppennachrichten benötigt der Bot je nach Gruppen-Setup ausreichende Rechte.
 - Topic IDs sind nur für Telegram-Foren relevant.
 - Snapshots werden nur angehängt, wenn das Event einen Snapshot hat und die Zieloption aktiv ist.
+
+Telegram-Kommandos:
+
+- `/status` sendet den aktuellen Druckerstatus als Text.
+- `/statusbild`, `/bild`, `/snapshot`, `/photo` oder `/statuspic` senden den Status plus aktuelles Kamerabild, falls ein Frame verfügbar ist.
+- `/help` zeigt die verfügbaren Kommandos.
+- Kommandos werden nur aus der konfigurierten Chat ID beantwortet. Wenn ein Topic gesetzt ist, muss auch die Topic ID passen.
 
 ### Mehrere Drucker
 
@@ -438,7 +449,36 @@ Bitte beachte:
 
 Die Oberfläche zeigt Canvas-Filament-Informationen und erlaubt Bearbeitung, wenn der Drucker die entsprechenden Daten bereitstellt. Diese Funktion ist hilfreich, wenn Materialzuordnung oder Spuleninformationen im UI korrigiert werden sollen.
 
-Je nach Firmwarestand können nicht alle Canvas-Daten verfügbar sein.
+Unterstützt sind:
+
+- Slot auswählen
+- Filament laden
+- Filament entladen
+- Slot-Daten bearbeiten: Name, Typ, Marke, Filament-Code, Farbe sowie minimale und maximale Düsentemperatur
+- Auto-Refill ein- oder ausschalten
+
+Load, Unload und Slot-Bearbeitung sind während eines aktiven oder pausierten Drucks absichtlich gesperrt. Je nach Firmwarestand können außerdem nicht alle Canvas-Kommandos verfügbar sein; in diesem Fall zeigt die Oberfläche die Fehlermeldung des Druckers.
+
+### Temperatursteuerung
+
+Die Temperaturkarte zeigt aktuelle und Zieltemperaturen für Düse, Heizbett und Kammer. Düse und Heizbett können über Eingabefelder oder Presets gesetzt werden:
+
+- Düse: `0` bis `350` °C
+- Heizbett: `0` bis `120` °C
+- `Off` setzt den Zielwert auf `0`
+- PLA/PETG-Presets setzen typische Startwerte
+
+Bitte ändere Temperaturen während eines laufenden Drucks nur bewusst. Die Oberfläche sendet den Zielwert direkt an den Drucker.
+
+### Timelapse-Videos
+
+Die Druckhistorie zeigt Timelapse-Einträge, wenn der Drucker `time_lapse_video_url` meldet. Die Weboberfläche enthält einen sicheren Download-Proxy unter `/api/printer/timelapse`, der bekannte Datei-Endpunkte des Druckers probiert und Kamera-MJPEG-Streams ausdrücklich verwirft.
+
+Beim getesteten Firmwarestand liefert die Historie zwar `video/...mp4`-Pfade, die MP4-Dateien wurden aber nicht über die bekannten HTTP-Download-Endpunkte freigegeben. In diesem Fall meldet der Proxy sauber `timelapse unavailable`, statt versehentlich den Kamerastream als Datei zu speichern.
+
+### Kamera und Reconnect
+
+Die Kamera-Verbindung wird erst als aktiv markiert, wenn wirklich ein JPEG-Frame empfangen wurde. Neue Browser-Streams erhalten sofort das letzte bekannte Bild, damit nach einem Reload nicht nur ein schwarzer Frame erscheint. MQTT-Verbindungen setzen ihren internen Connected-Status jetzt auch bei sauber geschlossenen Sessions zurück, sodass der Reconnect-Watcher zuverlässig wieder einen frischen Status abruft.
 
 ### Sprache umstellen
 
@@ -466,7 +506,14 @@ Wichtige Endpunkte:
 | `POST /api/printer/pause` | Druck pausieren |
 | `POST /api/printer/resume` | Druck fortsetzen |
 | `POST /api/printer/stop` | Druck stoppen |
+| `POST /api/printer/temperature` | Düsen- oder Heizbettziel setzen |
 | `GET /api/printer/files` | Druckdateien lesen |
+| `GET /api/printer/history` | Druckhistorie lesen |
+| `GET /api/printer/timelapse` | Timelapse-Datei sicher über die Weboberfläche herunterladen, sofern verfügbar |
+| `POST /api/printer/canvas/load` | gewählten Canvas-Slot laden |
+| `POST /api/printer/canvas/unload` | gewählten Canvas-Slot entladen |
+| `POST /api/printer/canvas/slot` | Canvas-Slotdaten bearbeiten |
+| `POST /api/printer/canvas/auto-refill` | Canvas Auto-Refill setzen |
 | `GET /api/camera/snapshot` | aktuelles Kamerabild |
 | `GET /api/camera/stream` | Kamerastream |
 | `GET /api/detection/status` | Detection-Status |
@@ -604,7 +651,7 @@ Mögliche nächste Ausbaustufen:
 - mehrsprachige Übersetzungsabdeckung für alle neuen UI-Texte
 - Snapshot-Galerie mit Filter nach Druckjob
 - erweiterte AI-Regeln pro Filament, Drucktyp oder Kameraansicht
-- Telegram-Kommandos für Statusabfrage
+- verifizierter Timelapse-Dateidownload, sobald der genaue Firmware-Endpunkt bekannt ist
 - Webhook-Signaturen
 - MQTT-Diagnoseansicht
 - Export von Detection-Berichten
@@ -689,7 +736,9 @@ The application includes:
 - German/English language switch
 - Improved mobile and responsive layout
 - Start-print safety confirmation
-- Canvas filament display and editing
+- Canvas filament display, load/unload actions, and slot editing
+- Nozzle and heated bed temperature controls
+- Timelapse entries in print history with a safe download proxy when firmware exposes the file over HTTP
 - Camera snapshot and stream
 - Obico ML based spaghetti and print-failure detection
 - Detection score, object boxes, snapshot history, and ignore zones
@@ -697,12 +746,14 @@ The application includes:
 - Automatic pause when a failure risk is confirmed
 - Notifications through ntfy, Discord, Telegram, and generic webhook
 - Telegram messages to users, groups, and optional forum topics
+- Telegram commands for status checks with or without a camera image
 - Optional Telegram image attachment for AI failure alerts
 - Configurable status, start, stop, pause, resume, and progress messages
 - Progress notifications by percentage interval
 - JSON export and import for settings
 - Debug page for connection, network, detection, and notification status
 - Update check
+- Apple touch icon for iPhone/iPad Home Screen shortcuts
 - Local storage of settings, events, and detection snapshots
 
 ### What AI Detection Does
@@ -788,6 +839,13 @@ Notes:
 - Depending on group settings, the bot may need additional permissions.
 - Topic IDs are only relevant for Telegram forum topics.
 - Snapshots are only attached when the event has a snapshot and the destination option is enabled.
+
+Telegram commands:
+
+- `/status` sends the current printer status as text.
+- `/statusbild`, `/bild`, `/snapshot`, `/photo`, or `/statuspic` send the status plus the latest camera frame when available.
+- `/help` shows the available commands.
+- Commands are answered only from the configured chat ID. If a topic ID is configured, the topic must match too.
 
 ### Multiple Printers
 
@@ -1066,7 +1124,36 @@ Please remember:
 
 The UI displays Canvas filament information and allows editing when the printer exposes the corresponding data. This is useful for correcting material assignments or spool information inside the UI.
 
-Depending on firmware version, not all Canvas data may be available.
+Supported actions:
+
+- select a slot
+- load filament
+- unload filament
+- edit slot data: name, type, brand, filament code, color, and min/max nozzle temperature
+- enable or disable Auto Refill
+
+Load, unload, and slot editing are intentionally disabled during active or paused prints. Depending on firmware version, not every Canvas command may be available; in that case the UI shows the printer/API error.
+
+### Temperature Controls
+
+The temperature panel shows current and target temperatures for nozzle, heated bed, and chamber. Nozzle and bed targets can be changed through input fields or presets:
+
+- nozzle: `0` to `350` C
+- heated bed: `0` to `120` C
+- `Off` sets the target to `0`
+- PLA/PETG presets use typical starting values
+
+Change temperatures during a running print only deliberately. The UI sends the target directly to the printer.
+
+### Timelapse Videos
+
+Print history shows timelapse entries when the printer reports `time_lapse_video_url`. The web UI includes a safe download proxy at `/api/printer/timelapse`; it tries known printer file endpoints and explicitly rejects camera MJPEG streams.
+
+On the tested firmware, history reports `video/...mp4` paths, but the MP4 files were not exposed through the known HTTP download endpoints. In that case the proxy returns a clear `timelapse unavailable` error instead of saving the live camera stream as a wrong file.
+
+### Camera and Reconnect
+
+The camera connection is marked active only after a real JPEG frame has been received. New browser streams immediately receive the last known frame to reduce black views after reloads. MQTT sessions now reset their internal connected state even after clean disconnects, so the reconnect watcher can request a fresh printer status after reconnecting.
 
 ### Language Switching
 
@@ -1094,7 +1181,14 @@ Important endpoints:
 | `POST /api/printer/pause` | pause print |
 | `POST /api/printer/resume` | resume print |
 | `POST /api/printer/stop` | stop print |
+| `POST /api/printer/temperature` | set nozzle or bed target |
 | `GET /api/printer/files` | read print files |
+| `GET /api/printer/history` | read print history |
+| `GET /api/printer/timelapse` | safely download a timelapse file through the web UI when available |
+| `POST /api/printer/canvas/load` | load the selected Canvas slot |
+| `POST /api/printer/canvas/unload` | unload the selected Canvas slot |
+| `POST /api/printer/canvas/slot` | edit Canvas slot data |
+| `POST /api/printer/canvas/auto-refill` | set Canvas Auto Refill |
 | `GET /api/camera/snapshot` | current camera frame |
 | `GET /api/camera/stream` | camera stream |
 | `GET /api/detection/status` | detection status |
@@ -1232,7 +1326,7 @@ Possible next steps:
 - broader translation coverage for all new UI text
 - snapshot gallery filtered by print job
 - advanced AI rules per filament, print type, or camera angle
-- Telegram commands for status requests
+- verified timelapse file download once the exact firmware endpoint is known
 - webhook signatures
 - MQTT diagnostics view
 - exportable detection reports

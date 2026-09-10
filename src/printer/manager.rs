@@ -9,10 +9,12 @@ use super::client_raw::MqttRawClient;
 use super::client_ws::MqttWsClient;
 use super::commands::{Command, PendingRpcs};
 use super::models::{
+    METHOD_CANVAS_LOAD, METHOD_CANVAS_UNLOAD, METHOD_SET_AMS_TRAY_INFO,
     METHOD_GET_AMS_INFO, METHOD_GET_FILE_INFO, METHOD_GET_FILE_LIST, METHOD_GET_FILE_THUMBNAIL,
     METHOD_GET_FULL_STATUS, METHOD_GET_PRINT_HISTORY, METHOD_HOME_AXES, METHOD_JOG_AXIS,
     METHOD_PAUSE_PRINT, METHOD_RESUME_PRINT, METHOD_SET_AMS_AUTO_REFILL, METHOD_SET_FAN,
-    METHOD_SET_LED, METHOD_SET_SPEED_MODE, METHOD_START_PRINT, METHOD_STOP_PRINT,
+    METHOD_SET_LED, METHOD_SET_SPEED_MODE, METHOD_SET_TEMPERATURE, METHOD_START_PRINT,
+    METHOD_STOP_PRINT,
 };
 use super::state::{EventKind, PrinterEvent, PrinterState};
 use crate::config::AppConfig;
@@ -235,10 +237,15 @@ impl PrinterManager {
                 let clean = result.is_ok();
                 let was_long = attempt_start.elapsed().as_secs() >= 10;
                 match result {
-                    Ok(()) => info!("[raw] disconnected cleanly"),
+                    Ok(()) => {
+                        info!("[raw] disconnected cleanly");
+                        connected_tx.send(false).ok();
+                        state_changed_tx.send(()).ok();
+                    }
                     Err(e) => {
                         error!("[raw] disconnected (attempt {attempt}): {e}");
                         connected_tx.send(false).ok();
+                        state_changed_tx.send(()).ok();
                     }
                 }
 
@@ -300,10 +307,15 @@ impl PrinterManager {
                 let clean = result.is_ok();
                 let was_long = attempt_start.elapsed().as_secs() >= 10;
                 match result {
-                    Ok(()) => info!("[ws] disconnected cleanly"),
+                    Ok(()) => {
+                        info!("[ws] disconnected cleanly");
+                        connected_tx.send(false).ok();
+                        state_changed_tx.send(()).ok();
+                    }
                     Err(e) => {
                         error!("[ws] disconnected (attempt {attempt}): {e}");
                         connected_tx.send(false).ok();
+                        state_changed_tx.send(()).ok();
                     }
                 }
 
@@ -444,6 +456,31 @@ impl PrinterManager {
         Ok(())
     }
 
+    pub async fn set_temperatures(
+        &self,
+        nozzle: Option<i64>,
+        bed: Option<i64>,
+    ) -> Result<(), PrinterError> {
+        info!("[cmd] set_temperatures nozzle={nozzle:?} bed={bed:?}");
+        let mut params = serde_json::Map::new();
+        if let Some(target) = nozzle {
+            params.insert("extruder".to_string(), serde_json::json!(target));
+        }
+        if let Some(target) = bed {
+            params.insert("heater_bed".to_string(), serde_json::json!(target));
+        }
+        self.rpc_cmd(METHOD_SET_TEMPERATURE, Some(serde_json::Value::Object(params)), 10).await?;
+        self.state.write().await.add_event(
+            EventKind::Loaded("CommandTemperature".to_string()),
+            format!(
+                "Temperature target changed{}{}",
+                nozzle.map(|v| format!(" nozzle={v}°C")).unwrap_or_default(),
+                bed.map(|v| format!(" bed={v}°C")).unwrap_or_default(),
+            ),
+        );
+        Ok(())
+    }
+
     pub async fn home_axes(&self, axes: &str) -> Result<(), PrinterError> {
         info!("[cmd] home_axes axes={axes}");
         self.rpc_cmd(METHOD_HOME_AXES, Some(serde_json::json!({ "homed_axes": axes })), 15).await
@@ -506,6 +543,50 @@ impl PrinterManager {
     pub async fn set_ams_auto_refill(&self, enabled: bool) -> Result<(), PrinterError> {
         info!("[cmd] set_ams_auto_refill enabled={enabled}");
         self.rpc_cmd(METHOD_SET_AMS_AUTO_REFILL, Some(serde_json::json!({ "auto_refill": enabled })), 5).await
+    }
+
+    pub async fn canvas_load(&self, canvas_id: i64, tray_id: i64, tray_slot: i64) -> Result<(), PrinterError> {
+        info!("[cmd] canvas_load canvas={canvas_id} tray={tray_id} slot={tray_slot}");
+        self.rpc_cmd(METHOD_CANVAS_LOAD, Some(serde_json::json!({
+            "canvas_id": canvas_id,
+            "tray_id": tray_id,
+            "t": tray_slot,
+        })), 30).await?;
+        self.canvas_refresh().await.ok();
+        Ok(())
+    }
+
+    pub async fn canvas_unload(&self, canvas_id: i64, tray_id: i64, tray_slot: i64) -> Result<(), PrinterError> {
+        info!("[cmd] canvas_unload canvas={canvas_id} tray={tray_id} slot={tray_slot}");
+        self.rpc_cmd(METHOD_CANVAS_UNLOAD, Some(serde_json::json!({
+            "canvas_id": canvas_id,
+            "tray_id": tray_id,
+            "t": tray_slot,
+        })), 30).await?;
+        self.canvas_refresh().await.ok();
+        Ok(())
+    }
+
+    pub async fn canvas_set_tray_info(
+        &self,
+        canvas_id: i64,
+        tray_id: i64,
+        tray_slot: i64,
+        info: serde_json::Value,
+    ) -> Result<(), PrinterError> {
+        info!("[cmd] canvas_set_tray_info canvas={canvas_id} tray={tray_id} slot={tray_slot}");
+        let mut params = serde_json::Map::new();
+        params.insert("canvas_id".to_string(), serde_json::json!(canvas_id));
+        params.insert("tray_id".to_string(), serde_json::json!(tray_id));
+        params.insert("t".to_string(), serde_json::json!(tray_slot));
+        if let serde_json::Value::Object(map) = info {
+            for (k, v) in map {
+                params.insert(k, v);
+            }
+        }
+        self.rpc_cmd(METHOD_SET_AMS_TRAY_INFO, Some(serde_json::Value::Object(params)), 10).await?;
+        self.canvas_refresh().await.ok();
+        Ok(())
     }
 
     pub async fn get_file_list(&self, storage: &str, page_number: i64, page_size: i64) -> Result<serde_json::Value, PrinterError> {

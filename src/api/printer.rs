@@ -1,5 +1,9 @@
-use axum::extract::State;
+use axum::body::Body;
+use axum::extract::{Query, State};
+use axum::http::{header, HeaderValue, StatusCode};
+use axum::response::Response;
 use axum::Json;
+use futures::TryStreamExt;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::debug;
@@ -7,6 +11,7 @@ use tracing::debug;
 use super::router::AppState;
 use crate::error::AppError;
 use crate::printer::manager::StartPrintSlotMap;
+use crate::printer::state::PrintState;
 
 #[derive(serde::Serialize)]
 pub struct PrinterStatusResponse {
@@ -206,6 +211,28 @@ pub async fn set_speed_mode(
 }
 
 #[derive(Deserialize)]
+pub struct TemperatureRequest {
+    #[serde(default)]
+    pub nozzle: Option<i64>,
+    #[serde(default)]
+    pub bed: Option<i64>,
+}
+
+pub async fn set_temperatures(
+    State(state): State<AppState>,
+    Json(req): Json<TemperatureRequest>,
+) -> Result<Json<Value>, AppError> {
+    let nozzle = req.nozzle.map(|v| v.clamp(0, 350));
+    let bed = req.bed.map(|v| v.clamp(0, 120));
+    if nozzle.is_none() && bed.is_none() {
+        return Err(AppError::Validation("nozzle or bed target is required".to_string()));
+    }
+    debug!("API: set_temperatures nozzle={nozzle:?} bed={bed:?}");
+    state.manager.set_temperatures(nozzle, bed).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
 pub struct FileListQuery {
     pub storage: Option<String>,
     // native page semantics (1-based)
@@ -285,6 +312,125 @@ pub async fn set_canvas_auto_refill(
 }
 
 #[derive(Deserialize)]
+pub struct CanvasTrayRequest {
+    pub canvas_id: i64,
+    pub tray_id: i64,
+    pub tray_slot: i64,
+}
+
+#[derive(Deserialize)]
+pub struct CanvasSlotRequest {
+    pub canvas_id: i64,
+    pub tray_id: i64,
+    pub tray_slot: i64,
+    #[serde(default)]
+    pub filament_name: Option<String>,
+    #[serde(default)]
+    pub filament_type: Option<String>,
+    #[serde(default)]
+    pub filament_color: Option<String>,
+    #[serde(default)]
+    pub brand: Option<String>,
+    #[serde(default)]
+    pub filament_code: Option<String>,
+    #[serde(default)]
+    pub min_nozzle_temp: Option<i64>,
+    #[serde(default)]
+    pub max_nozzle_temp: Option<i64>,
+}
+
+fn ensure_canvas_safe(ps: &crate::printer::state::PrinterState) -> Result<(), AppError> {
+    if !ps.connected {
+        return Err(crate::error::PrinterError::NotConnected.into());
+    }
+    if matches!(ps.print_state(), PrintState::Printing | PrintState::Paused) {
+        return Err(AppError::Validation("Canvas changes are disabled during an active print".to_string()));
+    }
+    Ok(())
+}
+
+fn validate_canvas_ids(canvas_id: i64, tray_id: i64, tray_slot: i64) -> Result<(), AppError> {
+    if canvas_id < 0 {
+        return Err(AppError::Validation("canvas_id must be >= 0".to_string()));
+    }
+    if tray_id < 0 {
+        return Err(AppError::Validation("tray_id must be >= 0".to_string()));
+    }
+    if !(0..=3).contains(&tray_slot) {
+        return Err(AppError::Validation("tray_slot must be between 0 and 3".to_string()));
+    }
+    Ok(())
+}
+
+pub async fn canvas_load(
+    State(state): State<AppState>,
+    Json(req): Json<CanvasTrayRequest>,
+) -> Result<Json<Value>, AppError> {
+    validate_canvas_ids(req.canvas_id, req.tray_id, req.tray_slot)?;
+    let ps = state.printer_state.read().await;
+    ensure_canvas_safe(&*ps)?;
+    drop(ps);
+    debug!("API: canvas_load canvas={} tray={} slot={}", req.canvas_id, req.tray_id, req.tray_slot);
+    state.manager.canvas_load(req.canvas_id, req.tray_id, req.tray_slot).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn canvas_unload(
+    State(state): State<AppState>,
+    Json(req): Json<CanvasTrayRequest>,
+) -> Result<Json<Value>, AppError> {
+    validate_canvas_ids(req.canvas_id, req.tray_id, req.tray_slot)?;
+    let ps = state.printer_state.read().await;
+    ensure_canvas_safe(&*ps)?;
+    drop(ps);
+    debug!("API: canvas_unload canvas={} tray={} slot={}", req.canvas_id, req.tray_id, req.tray_slot);
+    state.manager.canvas_unload(req.canvas_id, req.tray_id, req.tray_slot).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn canvas_set_slot(
+    State(state): State<AppState>,
+    Json(req): Json<CanvasSlotRequest>,
+) -> Result<Json<Value>, AppError> {
+    validate_canvas_ids(req.canvas_id, req.tray_id, req.tray_slot)?;
+    let ps = state.printer_state.read().await;
+    ensure_canvas_safe(&*ps)?;
+    drop(ps);
+
+    let color = req
+        .filament_color
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches('#')
+        .to_string();
+    if !color.is_empty() && (color.len() != 6 || !color.chars().all(|c| c.is_ascii_hexdigit())) {
+        return Err(AppError::Validation("filament_color must be a 6 digit hex color".to_string()));
+    }
+
+    let mut info = serde_json::Map::new();
+    info.insert("filament_name".to_string(), serde_json::json!(req.filament_name.unwrap_or_default()));
+    info.insert("filament_type".to_string(), serde_json::json!(req.filament_type.unwrap_or_default()));
+    info.insert("filament_color".to_string(), serde_json::json!(color));
+    info.insert("brand".to_string(), serde_json::json!(req.brand.unwrap_or_default()));
+    info.insert("filament_code".to_string(), serde_json::json!(req.filament_code.unwrap_or_default()));
+    if let Some(v) = req.min_nozzle_temp {
+        info.insert("min_nozzle_temp".to_string(), serde_json::json!(v.clamp(0, 350)));
+    }
+    if let Some(v) = req.max_nozzle_temp {
+        info.insert("max_nozzle_temp".to_string(), serde_json::json!(v.clamp(0, 350)));
+    }
+
+    debug!("API: canvas_set_slot canvas={} tray={} slot={}", req.canvas_id, req.tray_id, req.tray_slot);
+    state.manager.canvas_set_tray_info(
+        req.canvas_id,
+        req.tray_id,
+        req.tray_slot,
+        serde_json::Value::Object(info),
+    ).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
 pub struct ThumbnailQuery {
     pub storage: Option<String>,
     pub filename: String,
@@ -321,4 +467,100 @@ pub async fn get_thumbnail(
         "thumbnail": thumbnail,
         "filename": query.filename,
     })))
+}
+
+#[derive(Deserialize)]
+pub struct TimelapseQuery {
+    pub path: String,
+}
+
+pub async fn download_timelapse(
+    State(state): State<AppState>,
+    Query(query): Query<TimelapseQuery>,
+) -> Result<Response<Body>, AppError> {
+    let raw_path = query.path.trim().trim_start_matches('/');
+    if raw_path.is_empty() || raw_path.contains("..") || raw_path.contains('\\') {
+        return Err(AppError::Validation("invalid timelapse path".to_string()));
+    }
+    if !(raw_path.starts_with("video/") || raw_path.starts_with("picture/")) {
+        return Err(AppError::Validation("timelapse path must start with video/ or picture/".to_string()));
+    }
+
+    let printer_ip = state.manager.printer_ip().await;
+    if printer_ip.trim().is_empty() {
+        return Err(crate::error::PrinterError::NotConnected.into());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(crate::error::PrinterError::from)?;
+    let candidates = [
+        format!("http://{printer_ip}/downloadFile/"),
+        format!("http://{printer_ip}/download/"),
+        format!("http://{printer_ip}/"),
+    ];
+    let mut last_status = None;
+    let mut selected = None;
+    for base in candidates {
+        let mut url = reqwest::Url::parse(&base)
+            .map_err(|_| AppError::Validation("invalid printer url".to_string()))?;
+        let prefix = url.path().trim_matches('/');
+        let path = if prefix.is_empty() {
+            raw_path.to_string()
+        } else {
+            format!("{prefix}/{raw_path}")
+        };
+        url.set_path(&path);
+        let resp = client
+            .get(url)
+            .send()
+            .await
+            .map_err(crate::error::PrinterError::from)?;
+        if !resp.status().is_success() {
+            last_status = Some(resp.status());
+            continue;
+        }
+        let content_type = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if content_type.contains("multipart/x-mixed-replace") {
+            last_status = Some(StatusCode::BAD_GATEWAY);
+            continue;
+        }
+        selected = Some(resp);
+        break;
+    }
+    let Some(resp) = selected else {
+        let status = last_status
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "no response".to_string());
+        return Err(AppError::Validation(format!("timelapse unavailable: {status}")));
+    };
+
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .cloned()
+        .unwrap_or_else(|| HeaderValue::from_static("application/octet-stream"));
+    let filename = raw_path
+        .rsplit('/')
+        .next()
+        .filter(|v| !v.is_empty())
+        .unwrap_or("timelapse.mp4")
+        .replace('"', "'");
+    let stream = resp
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\""))
+        .body(Body::from_stream(stream))
+        .map_err(|e| AppError::Validation(format!("failed to build response: {e}")))
 }

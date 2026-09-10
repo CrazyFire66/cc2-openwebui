@@ -178,6 +178,18 @@ async fn main() {
         info!("notification manager started");
     }
 
+    {
+        let telegram_commands = notifications::commands::TelegramCommandPoller::new(
+            manager_state.clone(),
+            config_arc.clone(),
+            frame_buffer.clone(),
+        );
+        tokio::spawn(async move {
+            telegram_commands.run().await;
+        });
+        info!("telegram command poller started");
+    }
+
     let update_checker = update::UpdateChecker::new();
     update_checker.clone().start();
     info!("update checker started (version={})", env!("CARGO_PKG_VERSION"));

@@ -214,7 +214,14 @@ export const detection = writable<DetectionStatus>({
   confirmation_frames: 2,
 });
 
-export const ui_settings = writable([
+export interface UiSetting {
+  id: string;
+  label: string;
+  checked: boolean;
+  value: string;
+}
+
+const defaultUiSettings: UiSetting[] = [
   { id: 'job-info',    label: 'Show Job info',       checked: true, value: false ? 'on' : 'off' },
   { id: 'control',     label: 'Show Controls',       checked: true, value: false ? 'on' : 'off' },
   { id: 'detection',   label: 'Show DetectionPanel', checked: true, value: false ? 'on' : 'off' },
@@ -222,4 +229,26 @@ export const ui_settings = writable([
   { id: 'camera',      label: 'Show Camera',         checked: true, value: false ? 'on' : 'off' },
   { id: 'temperature', label: 'Show TempPanel',      checked: true, value: false ? 'on' : 'off' },
   { id: 'canvas',      label: 'Show CanvasPanel',    checked: true, value: false ? 'on' : 'off' }
-]);
+];
+
+function loadUiSettings(): UiSetting[] {
+  if (typeof localStorage === 'undefined') return defaultUiSettings;
+  const raw = localStorage.getItem('ui_settings');
+  if (!raw) return defaultUiSettings;
+  try {
+    const saved = JSON.parse(raw) as Partial<UiSetting>[];
+    if (!Array.isArray(saved)) return defaultUiSettings;
+    return defaultUiSettings.map((item) => {
+      const match = saved.find((s) => s?.id === item.id);
+      return {
+        ...item,
+        checked: typeof match?.checked === 'boolean' ? match.checked : item.checked,
+        value: typeof match?.value === 'string' ? match.value : item.value,
+      };
+    });
+  } catch {
+    return defaultUiSettings;
+  }
+}
+
+export const ui_settings = writable<UiSetting[]>(loadUiSettings());

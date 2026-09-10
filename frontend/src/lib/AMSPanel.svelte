@@ -1,15 +1,15 @@
 <script lang="ts">
   import { Disc2 } from 'lucide-svelte';
   import { printer, showToast, type CanvasInfo, type TrayEntry } from '../stores';
-  import { refreshCanvas, setCanvasAutoRefill } from '../api';
+  import { canvasLoad, canvasUnload, refreshCanvas, saveCanvasSlot, setCanvasAutoRefill } from '../api';
   import { toErrorMessage } from './errors';
 
   let refreshing = false;
-  async function handleRefreshCanvas() {
+  async function handleRefreshCanvas(silent = false) {
     refreshing = true;
     try {
       await refreshCanvas();
-      showToast('Canvas refreshed', 'info');
+      if (!silent) showToast('Canvas refreshed', 'info');
     } catch (e) {
       showToast(toErrorMessage(e));
     } finally {
@@ -21,6 +21,7 @@
   $: filamentDetected = s?.extruder?.filament_detected === 1;
   $: filamentDetectEnabled = s?.extruder?.filament_detect_enable === 1;
   $: connected = $printer.connected;
+  $: activePrint = s?.print_status?.state === 'printing' || s?.print_status?.state === 'paused';
 
   $: canvasInfo = s?.canvas_info as CanvasInfo | undefined;
   $: activeCanvasId = canvasInfo?.active_canvas_id ?? 0;
@@ -63,6 +64,95 @@
   }
 
   let selected = 0;
+  $: selectedTray = trayList[selected];
+  $: selectedTrayId = selectedTray?.tray_id ?? -1;
+  $: canEditSlot = connected && !activePrint && !!selectedTray && selectedTrayId >= 0;
+  $: canLoadSlot = canEditSlot && loadedSlot !== selected;
+  $: canUnloadSlot = canEditSlot && loadedSlot === selected;
+
+  let actionPending: 'load' | 'unload' | 'save' | null = null;
+  let editOpen = false;
+  let editFilamentName = '';
+  let editFilamentType = '';
+  let editFilamentColor = '#888888';
+  let editBrand = '';
+  let editFilamentCode = '';
+  let editMinTemp = 190;
+  let editMaxTemp = 240;
+
+  function selectedPayload() {
+    return {
+      canvas_id: activeCanvasId,
+      tray_id: selectedTrayId,
+      tray_slot: selected,
+    };
+  }
+
+  async function handleLoad() {
+    if (!canLoadSlot) return;
+    actionPending = 'load';
+    try {
+      await canvasLoad(selectedPayload());
+      await handleRefreshCanvas(true);
+      showToast(`Slot ${selected + 1} loaded`, 'info');
+    } catch (e) {
+      showToast(toErrorMessage(e), 'error', 6000);
+    } finally {
+      actionPending = null;
+    }
+  }
+
+  async function handleUnload() {
+    if (!canUnloadSlot) return;
+    actionPending = 'unload';
+    try {
+      await canvasUnload(selectedPayload());
+      await handleRefreshCanvas(true);
+      showToast(`Slot ${selected + 1} unloaded`, 'info');
+    } catch (e) {
+      showToast(toErrorMessage(e), 'error', 6000);
+    } finally {
+      actionPending = null;
+    }
+  }
+
+  function openEdit() {
+    if (!canEditSlot) return;
+    const tray = selectedTray;
+    editFilamentName = tray?.filament_name || tray?.tray_type || '';
+    editFilamentType = tray?.filament_type || '';
+    editBrand = tray?.brand || '';
+    editFilamentCode = tray?.filament_code || '';
+    const rawColor = tray?.filament_color?.trim() || '888888';
+    editFilamentColor = rawColor.startsWith('#') ? rawColor : `#${rawColor.slice(0, 6)}`;
+    editMinTemp = tray?.min_nozzle_temp || 190;
+    editMaxTemp = tray?.max_nozzle_temp || 240;
+    editOpen = true;
+  }
+
+  async function saveEdit() {
+    if (!canEditSlot) return;
+    actionPending = 'save';
+    try {
+      await saveCanvasSlot({
+        ...selectedPayload(),
+        filament_name: editFilamentName.trim(),
+        filament_type: editFilamentType.trim(),
+        filament_color: editFilamentColor,
+        brand: editBrand.trim(),
+        filament_code: editFilamentCode.trim(),
+        min_nozzle_temp: Math.round(editMinTemp),
+        max_nozzle_temp: Math.round(editMaxTemp),
+      });
+      editOpen = false;
+      await handleRefreshCanvas(true);
+      showToast(`Slot ${selected + 1} saved`, 'info');
+    } catch (e) {
+      showToast(toErrorMessage(e), 'error', 6000);
+    } finally {
+      actionPending = null;
+    }
+  }
 
   // auto-refill toggle with optimistic UI
   $: autoRefill = canvasInfo?.auto_refill ?? false;
@@ -173,19 +263,19 @@
       </div>
 
       <div class="slot-buttons">
-        <button class="btn block" disabled>
+        <button class="btn block" disabled={!canLoadSlot || actionPending !== null} on:click={handleLoad} title={activePrint ? 'Disabled while a print is active' : 'Load selected slot'}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 2v9M4.5 7.5L8 11l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          Load
+          {actionPending === 'load' ? 'Loading...' : 'Load'}
         </button>
-        <button class="btn block" disabled>
+        <button class="btn block" disabled={!canUnloadSlot || actionPending !== null} on:click={handleUnload} title={activePrint ? 'Disabled while a print is active' : 'Unload selected slot'}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 13V4M4.5 7.5L8 4l3.5 3.5M3 2.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          Unload
+          {actionPending === 'unload' ? 'Unloading...' : 'Unload'}
         </button>
-        <button class="btn block" disabled>
+        <button class="btn block" disabled={!canEditSlot || actionPending !== null} on:click={openEdit} title={activePrint ? 'Disabled while a print is active' : 'Edit selected slot'}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
           </svg>
@@ -208,6 +298,61 @@
     </label>
   </div>
 </section>
+
+{#if editOpen}
+  <div class="modal-backdrop" role="presentation" on:click={() => editOpen = false}>
+    <div class="modal-sheet slot-modal" role="dialog" aria-modal="true" aria-label={`Edit Canvas slot ${selected + 1}`} on:click|stopPropagation>
+      <div class="modal-header">
+        <div>
+          <h2>Edit Slot {selected + 1}</h2>
+          <p>Canvas {activeCanvasId} · Tray {selectedTrayId}</p>
+        </div>
+        <button class="icon-btn" on:click={() => editOpen = false} aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input class="input" bind:value={editFilamentName} placeholder="PLA White" />
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <input class="input" bind:value={editFilamentType} placeholder="PLA" />
+        </label>
+        <label class="field">
+          <span class="field-label">Brand</span>
+          <input class="input" bind:value={editBrand} placeholder="Elegoo" />
+        </label>
+        <label class="field">
+          <span class="field-label">Filament Code</span>
+          <input class="input mono" bind:value={editFilamentCode} placeholder="optional" />
+        </label>
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">Color</span>
+            <div class="color-line">
+              <input class="color-picker" type="color" bind:value={editFilamentColor} />
+              <input class="input mono" bind:value={editFilamentColor} />
+            </div>
+          </label>
+          <label class="field">
+            <span class="field-label">Min Nozzle</span>
+            <input class="input mono" type="number" min="0" max="350" bind:value={editMinTemp} />
+          </label>
+          <label class="field">
+            <span class="field-label">Max Nozzle</span>
+            <input class="input mono" type="number" min="0" max="350" bind:value={editMaxTemp} />
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" on:click={() => editOpen = false}>Cancel</button>
+        <button class="btn primary" disabled={actionPending !== null} on:click={saveEdit}>
+          {actionPending === 'save' ? 'Saving...' : 'Save Slot'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .title-row {
@@ -443,6 +588,69 @@
     color: var(--muted);
   }
 
+  .slot-modal {
+    width: min(480px, calc(100vw - 32px));
+  }
+  .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+    color: var(--text);
+  }
+  .modal-header p {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--border2); }
+  .modal-body {
+    padding: 16px 18px 4px;
+  }
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr;
+    gap: 10px;
+  }
+  .color-line {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 8px;
+    align-items: center;
+  }
+  .color-picker {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--border);
+  }
+
   .toggle { position: relative; display: block; width: 36px; height: 20px; cursor: pointer; flex-shrink: 0; }
   .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
   .toggle input:disabled + .knob { opacity: 0.45; cursor: not-allowed; }
@@ -465,4 +673,8 @@
   }
   input:checked + .knob { background: var(--surface2); border-color: var(--border2); }
   input:checked + .knob::before { transform: translateX(16px); background: var(--accent); }
+
+  @media (max-width: 560px) {
+    .field-grid { grid-template-columns: 1fr; }
+  }
 </style>

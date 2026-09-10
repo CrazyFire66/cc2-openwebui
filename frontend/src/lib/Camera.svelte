@@ -18,6 +18,7 @@
   let canvasReady = false;
   let imgError = false;
   let reconnectTimer: number | null = null;
+  let streamKey = Date.now();
 
   let detections: DetectionBox[] = [];
   let zones: ExcludeZone[] = [];
@@ -31,8 +32,11 @@
   $: detEnabled = $detection.enabled;
 
   // server-relative path avoids LAN mismatch
-  $: streamUrl = connected ? '/api/camera/stream' : '';
-  $: if (connected) imgError = false;
+  $: streamUrl = connected ? `/api/camera/stream?t=${streamKey}` : '';
+  $: if (!connected) {
+    imgError = false;
+    canvasReady = false;
+  }
 
   let pollTimer: number;
 
@@ -86,7 +90,11 @@
     if (reconnectTimer !== null) return;
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
-      if (connected) imgError = false;
+      if (connected) {
+        canvasReady = false;
+        imgError = false;
+        streamKey = Date.now();
+      }
     }, 3000);
   }
 

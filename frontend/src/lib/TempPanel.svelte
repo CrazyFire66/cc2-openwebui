@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { printer } from '../stores';
+  import { printer, showToast } from '../stores';
+  import { setTemperatures } from '../api';
+  import { toErrorMessage } from './errors';
 
   $: s = $printer.state;
+  $: connected = $printer.connected;
   $: nozzleTemp = s?.extruder?.temperature ?? 0;
   $: nozzleTarget = s?.extruder?.target ?? 0;
   $: bedTemp = s?.heater_bed?.temperature ?? 0;
@@ -9,11 +12,39 @@
   $: chamberTemp = s?.ztemperature_sensor?.temperature ?? 0;
   $: nStat = tempStatus(nozzleTemp, nozzleTarget);
   $: bStat = tempStatus(bedTemp, bedTarget);
+  let nozzleInput = '';
+  let bedInput = '';
+  let saving: 'nozzle' | 'bed' | null = null;
 
   function tempStatus(current: number, target: number): 'off' | 'heating' | 'ready' {
     if (target === 0) return 'off';
     if (current < target - 5) return 'heating';
     return 'ready';
+  }
+
+  async function applyTemp(kind: 'nozzle' | 'bed', value?: number) {
+    const raw = value ?? Number(kind === 'nozzle' ? nozzleInput : bedInput);
+    if (!Number.isFinite(raw)) {
+      showToast('Enter a temperature target first.', 'warn');
+      return;
+    }
+    const target = Math.round(raw);
+    const max = kind === 'nozzle' ? 350 : 120;
+    if (target < 0 || target > max) {
+      showToast(`${kind === 'nozzle' ? 'Nozzle' : 'Bed'} target must be 0-${max}°C.`, 'warn');
+      return;
+    }
+    saving = kind;
+    try {
+      await setTemperatures(kind === 'nozzle' ? { nozzle: target } : { bed: target });
+      if (kind === 'nozzle') nozzleInput = '';
+      else bedInput = '';
+      showToast(`${kind === 'nozzle' ? 'Nozzle' : 'Bed'} target set to ${target}°C`, 'info');
+    } catch (e) {
+      showToast(toErrorMessage(e), 'error', 6000);
+    } finally {
+      saving = null;
+    }
   }
 </script>
 
@@ -42,11 +73,18 @@
         <span class="temp-cur {nStat} mono">{Math.round(nozzleTemp)}°</span>
       </div>
       <div class="col-tgt ra">
-        {#if nozzleTarget > 0}
-          <span class="temp-tgt mono">{nozzleTarget}°</span>
-        {:else}
-          <span class="temp-tgt dim">-</span>
-        {/if}
+        <div class="target-control">
+          <span class="temp-tgt mono">{nozzleTarget > 0 ? `${nozzleTarget}°` : '-'}</span>
+          <input class="temp-input mono" type="number" min="0" max="350" step="1" bind:value={nozzleInput} placeholder="°C" disabled={!connected || saving !== null} />
+          <button class="mini-btn" disabled={!connected || saving !== null} on:click={() => applyTemp('nozzle')}>
+            {saving === 'nozzle' ? '...' : 'Set'}
+          </button>
+        </div>
+        <div class="presets">
+          <button disabled={!connected || saving !== null} on:click={() => applyTemp('nozzle', 0)}>Off</button>
+          <button disabled={!connected || saving !== null} on:click={() => applyTemp('nozzle', 210)}>PLA</button>
+          <button disabled={!connected || saving !== null} on:click={() => applyTemp('nozzle', 240)}>PETG</button>
+        </div>
       </div>
     </div>
 
@@ -63,11 +101,18 @@
         <span class="temp-cur {bStat} mono">{Math.round(bedTemp)}°</span>
       </div>
       <div class="col-tgt ra">
-        {#if bedTarget > 0}
-          <span class="temp-tgt mono">{bedTarget}°</span>
-        {:else}
-          <span class="temp-tgt dim">-</span>
-        {/if}
+        <div class="target-control">
+          <span class="temp-tgt mono">{bedTarget > 0 ? `${bedTarget}°` : '-'}</span>
+          <input class="temp-input mono" type="number" min="0" max="120" step="1" bind:value={bedInput} placeholder="°C" disabled={!connected || saving !== null} />
+          <button class="mini-btn" disabled={!connected || saving !== null} on:click={() => applyTemp('bed')}>
+            {saving === 'bed' ? '...' : 'Set'}
+          </button>
+        </div>
+        <div class="presets">
+          <button disabled={!connected || saving !== null} on:click={() => applyTemp('bed', 0)}>Off</button>
+          <button disabled={!connected || saving !== null} on:click={() => applyTemp('bed', 60)}>PLA</button>
+          <button disabled={!connected || saving !== null} on:click={() => applyTemp('bed', 80)}>PETG</button>
+        </div>
       </div>
     </div>
 
@@ -101,7 +146,7 @@
 
   .temp-head {
     display: grid;
-    grid-template-columns: 1.2fr 1fr 1fr;
+    grid-template-columns: 1.05fr 0.75fr 1.45fr;
     padding: 8px 14px;
     border-bottom: 1px solid var(--border);
     background: var(--surface2);
@@ -114,7 +159,7 @@
 
   .temp-row {
     display: grid;
-    grid-template-columns: 1.2fr 1fr 1fr;
+    grid-template-columns: 1.05fr 0.75fr 1.45fr;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     align-items: center;
@@ -156,4 +201,62 @@
     color: var(--muted);
   }
   .temp-tgt.dim { color: var(--muted2); }
+
+  .target-control {
+    display: grid;
+    grid-template-columns: 38px minmax(54px, 1fr) 42px;
+    align-items: center;
+    gap: 5px;
+  }
+  .temp-input {
+    min-width: 0;
+    height: 26px;
+    padding: 3px 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 11px;
+    text-align: right;
+  }
+  .temp-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-dim);
+  }
+  .mini-btn,
+  .presets button {
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  .mini-btn:hover:not(:disabled),
+  .presets button:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--border2);
+    background: var(--surface3);
+  }
+  .presets {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 5px;
+  }
+  .presets button { padding: 0 7px; }
+
+  @media (max-width: 560px) {
+    .temp-head,
+    .temp-row {
+      grid-template-columns: 1fr;
+      gap: 7px;
+    }
+    .temp-head span:not(:first-child) { display: none; }
+    .ra { text-align: left; }
+    .target-control { grid-template-columns: 42px minmax(70px, 1fr) 48px; }
+    .presets { justify-content: flex-start; }
+  }
 </style>
