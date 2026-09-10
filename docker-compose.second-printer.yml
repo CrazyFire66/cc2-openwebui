@@ -1,0 +1,18 @@
+services:
+  cc2-openwebui-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cc2-openwebui:latest
+    container_name: cc2-openwebui-2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      CC2_SERVER_PORT: "8485"
+      CC2_OBICO_URL: "http://localhost:3334/p/"
+      OBICO_PORT: "3334"
+    volumes:
+      - cc2_openwebui_state_2:/work
+
+volumes:
+  cc2_openwebui_state_2:

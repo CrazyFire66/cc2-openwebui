@@ -44,8 +44,8 @@ RUN mkdir -p /work /work/data /work/snapshots \
     && printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'export PORT="${PORT:-3333}"' \
-    'gunicorn -w 1 -b 0.0.0.0:"${PORT}" --chdir /app server:app &' \
+    'export OBICO_PORT="${OBICO_PORT:-${PORT:-3333}}"' \
+    'gunicorn -w 1 -b 0.0.0.0:"${OBICO_PORT}" --chdir /app server:app &' \
     'ML_PID=$!' \
     "trap 'kill \"\$ML_PID\" 2>/dev/null || true' INT TERM EXIT" \
     'cd /work' \

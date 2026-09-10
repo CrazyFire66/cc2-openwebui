@@ -290,6 +290,28 @@ impl AppConfig {
             "123456"
         }
     }
+
+    pub fn apply_env_overrides(&mut self) {
+        if let Some(host) = read_env("CC2_SERVER_HOST") {
+            self.server.host = host;
+        }
+        if let Some(port) = read_env("CC2_SERVER_PORT").and_then(|v| v.parse::<u16>().ok()) {
+            self.server.port = port;
+        }
+        if let Some(url) = read_env("CC2_OBICO_URL") {
+            self.detection.obico_url = url;
+        }
+        if let Some(level) = read_env("CC2_LOG_LEVEL") {
+            self.logging.level = level;
+        }
+    }
+}
+
+fn read_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 impl Default for AppConfig {

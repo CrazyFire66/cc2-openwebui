@@ -39,13 +39,14 @@ async fn main() {
 
     db::migrate_jsonl(&db).await;
 
-    let config = match db::load_app_config(&db).await {
+    let mut config = match db::load_app_config(&db).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("warn: could not load config from db, using defaults: {e}");
             AppConfig::default()
         }
     };
+    config.apply_env_overrides();
     let pre_configured = !config.printer.ip.is_empty();
 
     init_tracing(&config.logging.level);

@@ -289,6 +289,41 @@ cd /opt/cc2-openwebui
 docker compose up -d --build
 ```
 
+### Zweiter Container für einen zweiten Drucker
+
+Für eine zweite parallele Druckerinstanz gibt es `docker-compose.second-printer.yml`. Diese zweite Instanz nutzt ein eigenes Docker-Volume, einen eigenen Web-Port und einen eigenen Obico-ML-Port.
+
+| Instanz | Container | Web UI | Obico ML | Volume |
+| --- | --- | --- | --- | --- |
+| Drucker 1 | `cc2-openwebui` | `http://YOUR-SERVER-IP:8484` | `http://localhost:3333/p/` | `cc2_openwebui_state` |
+| Drucker 2 | `cc2-openwebui-2` | `http://YOUR-SERVER-IP:8485` | `http://localhost:3334/p/` | `cc2_openwebui_state_2` |
+
+Beide Instanzen starten:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.second-printer.yml up -d --build
+```
+
+Nur die zweite Instanz neu starten:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.second-printer.yml up -d --build cc2-openwebui-2
+```
+
+Logs der zweiten Instanz:
+
+```bash
+docker logs -f cc2-openwebui-2
+```
+
+Danach öffnest du für den zweiten Drucker:
+
+```text
+http://YOUR-SERVER-IP:8485
+```
+
+Der zweite Container startet mit leerer Konfiguration. Richte den zweiten Drucker dort über das Onboarding ein. Die Daten bleiben getrennt, weil jede Instanz ein eigenes Volume verwendet.
+
 ### Daten, Volumes und Pfade
 
 Im Container verwendet die Anwendung `/work` als Arbeitsverzeichnis. Dort liegen unter anderem:
@@ -307,6 +342,16 @@ volumes:
 ```
 
 Dadurch bleiben Einstellungen und Snapshots erhalten, auch wenn der Container neu gebaut wird.
+
+Für mehrere Container können die wichtigsten Ports über Umgebungsvariablen gesetzt werden:
+
+| Variable | Bedeutung | Beispiel |
+| --- | --- | --- |
+| `CC2_SERVER_HOST` | Host/IP, an die die Web-App bindet | `0.0.0.0` |
+| `CC2_SERVER_PORT` | Web-Port der Instanz | `8485` |
+| `CC2_OBICO_URL` | Obico-ML-URL, die die Detection nutzt | `http://localhost:3334/p/` |
+| `OBICO_PORT` | Port des eingebetteten Obico-ML-Servers | `3334` |
+| `CC2_LOG_LEVEL` | Log-Level | `info` |
 
 ### Backup und Restore
 
@@ -872,6 +917,41 @@ cd /opt/cc2-openwebui
 docker compose up -d --build
 ```
 
+### Second Container for a Second Printer
+
+For a second parallel printer instance, use `docker-compose.second-printer.yml`. The second instance uses its own Docker volume, its own web port, and its own Obico ML port.
+
+| Instance | Container | Web UI | Obico ML | Volume |
+| --- | --- | --- | --- | --- |
+| Printer 1 | `cc2-openwebui` | `http://YOUR-SERVER-IP:8484` | `http://localhost:3333/p/` | `cc2_openwebui_state` |
+| Printer 2 | `cc2-openwebui-2` | `http://YOUR-SERVER-IP:8485` | `http://localhost:3334/p/` | `cc2_openwebui_state_2` |
+
+Start both instances:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.second-printer.yml up -d --build
+```
+
+Restart only the second instance:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.second-printer.yml up -d --build cc2-openwebui-2
+```
+
+Logs for the second instance:
+
+```bash
+docker logs -f cc2-openwebui-2
+```
+
+Then open the second printer UI:
+
+```text
+http://YOUR-SERVER-IP:8485
+```
+
+The second container starts with an empty configuration. Set up the second printer through onboarding. Data stays separated because each instance uses its own volume.
+
 ### Data, Volumes, and Paths
 
 Inside the container, the application uses `/work` as its working directory. This stores, among other things:
@@ -890,6 +970,16 @@ volumes:
 ```
 
 This keeps settings and snapshots intact even when the container is rebuilt.
+
+For multiple containers, the most important ports can be controlled through environment variables:
+
+| Variable | Meaning | Example |
+| --- | --- | --- |
+| `CC2_SERVER_HOST` | Host/IP the web app binds to | `0.0.0.0` |
+| `CC2_SERVER_PORT` | Web port for the instance | `8485` |
+| `CC2_OBICO_URL` | Obico ML URL used by detection | `http://localhost:3334/p/` |
+| `OBICO_PORT` | Port for the embedded Obico ML server | `3334` |
+| `CC2_LOG_LEVEL` | Log level | `info` |
 
 ### Backup and Restore
 

@@ -17,6 +17,8 @@ destinations = []
 [server]
 host = "0.0.0.0"
 port = 8484
+# For multiple containers these values can also be overridden with
+# CC2_SERVER_HOST, CC2_SERVER_PORT, CC2_OBICO_URL, OBICO_PORT, and CC2_LOG_LEVEL.
 
 [logging]
 level = "info"
