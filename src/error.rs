@@ -32,7 +32,7 @@ pub enum SetupError {
     #[error("connection verification failed: {0}")]
     VerificationFailed(String),
 
-    #[error("invalid pincode: must be 6 uppercase alphanumeric characters")]
+    #[error("invalid pincode: must be 6 letters or numbers")]
     InvalidPincode,
 }
 
@@ -66,7 +66,7 @@ pub enum ConfigError {
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
 
-    #[error("invalid pincode: must be 6 uppercase characters")]
+    #[error("invalid pincode: must be 6 letters or numbers")]
     InvalidPincode,
 }
 
@@ -116,6 +116,8 @@ pub enum NotificationError {
     NtfyFailed(String),
     #[error("discord notification failed: {0}")]
     DiscordFailed(String),
+    #[error("telegram notification failed: {0}")]
+    TelegramFailed(String),
     #[error("webhook notification failed: {0}")]
     WebhookFailed(String),
 }

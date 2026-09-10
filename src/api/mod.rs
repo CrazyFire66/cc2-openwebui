@@ -2,6 +2,7 @@ pub mod router;
 pub mod printer;
 pub mod upload;
 pub mod detection;
+pub mod debug;
 pub mod camera;
 pub mod settings;
 pub mod notifications;

@@ -11,7 +11,7 @@
   let notifyThreshold = 0.6;
   let pauseThreshold = 0.7;
   let obicoUrl = 'http://localhost:3333/p/';
-  const obicoGuideUrl = 'https://github.com/DimeusDev/cc2-opencloud/docs/obicolm.md';
+  const obicoGuideUrl = 'https://github.com/CrazyFire66/cc2-openwebui/blob/main/docs/obicolm.md';
 
   let testUrlState: 'idle' | 'testing' | 'ok' | 'fail' = 'idle';
   let testUrlError = '';

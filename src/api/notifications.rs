@@ -7,7 +7,7 @@ use tracing::{info, warn};
 use super::router::AppState;
 use crate::config::{DestinationKind, EventToggles, NotificationDestination};
 use crate::error::{AppError, ConfigError};
-use crate::notifications::{discord, ntfy, webhook};
+use crate::notifications::{discord, ntfy, telegram, webhook};
 
 fn gen_id() -> String {
     use rand::Rng;
@@ -31,6 +31,7 @@ pub async fn create_destination(
     Json(mut dest): Json<NotificationDestination>,
 ) -> Result<Json<Value>, AppError> {
     dest.id = gen_id();
+    normalize_destination(&mut dest);
     let id = dest.id.clone();
     crate::db::upsert_destination(&state.db, &dest).await.map_err(db_err)?;
     let mut config = state.config.write().await;
@@ -46,7 +47,12 @@ pub struct UpdateDestinationReq {
     pub ntfy_topic: Option<String>,
     pub ntfy_tap_url: Option<String>,
     pub discord_webhook_url: Option<String>,
+    pub telegram_bot_token: Option<String>,
+    pub telegram_chat_id: Option<String>,
+    pub telegram_thread_id: Option<String>,
     pub webhook_url: Option<String>,
+    pub progress_interval: Option<u8>,
+    pub attach_snapshot: Option<bool>,
     pub toggles: Option<EventToggles>,
 }
 
@@ -71,8 +77,14 @@ pub async fn update_destination(
         if let Some(v) = req.ntfy_topic { dest.ntfy_topic = Some(v); }
         if let Some(v) = req.ntfy_tap_url { dest.ntfy_tap_url = if v.is_empty() { None } else { Some(v) }; }
         if let Some(v) = req.discord_webhook_url { dest.discord_webhook_url = Some(v); }
+        if let Some(v) = req.telegram_bot_token { dest.telegram_bot_token = empty_to_none(v); }
+        if let Some(v) = req.telegram_chat_id { dest.telegram_chat_id = empty_to_none(v); }
+        if let Some(v) = req.telegram_thread_id { dest.telegram_thread_id = empty_to_none(v); }
         if let Some(v) = req.webhook_url { dest.webhook_url = Some(v); }
+        if let Some(v) = req.progress_interval { dest.progress_interval = normalize_progress_interval(v); }
+        if let Some(v) = req.attach_snapshot { dest.attach_snapshot = v; }
         if let Some(v) = req.toggles { dest.toggles = v; }
+        normalize_destination(dest);
 
         dest.clone()
     };
@@ -117,8 +129,40 @@ pub async fn test_destination(
     match dest.kind {
         DestinationKind::Ntfy => ntfy::send_test(&dest).await?,
         DestinationKind::Discord => discord::send_test(&dest).await?,
+        DestinationKind::Telegram => telegram::send_test(&dest).await?,
         DestinationKind::Webhook => webhook::send(&dest, "CC2 Monitor", "Test notification - webhook is working").await?,
     }
 
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+fn normalize_destination(dest: &mut NotificationDestination) {
+    dest.label = dest.label.trim().to_string();
+    dest.ntfy_server = dest.ntfy_server.take().and_then(empty_to_none);
+    dest.ntfy_topic = dest.ntfy_topic.take().and_then(empty_to_none);
+    dest.ntfy_tap_url = dest.ntfy_tap_url.take().and_then(empty_to_none);
+    dest.discord_webhook_url = dest.discord_webhook_url.take().and_then(empty_to_none);
+    dest.telegram_bot_token = dest.telegram_bot_token.take().and_then(empty_to_none);
+    dest.telegram_chat_id = dest.telegram_chat_id.take().and_then(empty_to_none);
+    dest.telegram_thread_id = dest.telegram_thread_id.take().and_then(empty_to_none);
+    dest.webhook_url = dest.webhook_url.take().and_then(empty_to_none);
+    dest.progress_interval = normalize_progress_interval(dest.progress_interval);
+}
+
+fn empty_to_none(value: String) -> Option<String> {
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn normalize_progress_interval(value: u8) -> u8 {
+    match value {
+        0 => 0,
+        1..=4 => 5,
+        5..=100 => value,
+        _ => 100,
+    }
 }

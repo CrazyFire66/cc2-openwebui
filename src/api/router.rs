@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 
 use super::camera;
+use super::debug;
 use super::detection;
 use super::logs;
 use super::notifications;
@@ -130,6 +131,9 @@ pub fn build_router(
         .route("/api/camera/status", get(camera::status))
         .route("/api/settings",
             get(settings::get_settings).post(settings::update_settings))
+        .route("/api/settings/export", get(settings::export_settings))
+        .route("/api/settings/import", post(settings::import_settings))
+        .route("/api/debug", get(debug::get_debug))
         .route("/api/logs",
             get(logs::get_logs).delete(logs::delete_logs))
         .route("/api/snapshots",

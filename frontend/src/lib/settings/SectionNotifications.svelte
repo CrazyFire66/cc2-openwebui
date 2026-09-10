@@ -20,6 +20,11 @@
   let newNtfyTopic = '';
   let newNtfyTapUrl = typeof window !== 'undefined' ? window.location.origin : '';
   let newDiscordUrl = '';
+  let newTelegramToken = '';
+  let newTelegramChatId = '';
+  let newTelegramThreadId = '';
+  let newAttachSnapshot = true;
+  let newProgressInterval = 0;
   let newWebhookUrl = '';
   let addDestState: 'idle' | 'saving' | 'error' = 'idle';
   let addDestError = '';
@@ -80,15 +85,25 @@
     addDestState = 'saving';
     addDestError = '';
     try {
+      const toggles = defaultToggles();
+      toggles.progress_milestone = newProgressInterval > 0;
       const dest: Omit<NotificationDestination, 'id'> = {
         kind: newKind,
         enabled: true,
         label: newLabel.trim(),
-        toggles: defaultToggles(),
+        progress_interval: newProgressInterval,
+        attach_snapshot: newKind === 'telegram' ? newAttachSnapshot : false,
+        toggles,
         ...(newKind === 'ntfy'
           ? { ntfy_server: newNtfyServer, ntfy_topic: newNtfyTopic, ntfy_tap_url: newNtfyTapUrl }
           : newKind === 'discord'
           ? { discord_webhook_url: newDiscordUrl }
+          : newKind === 'telegram'
+          ? {
+              telegram_bot_token: newTelegramToken,
+              telegram_chat_id: newTelegramChatId,
+              telegram_thread_id: newTelegramThreadId,
+            }
           : { webhook_url: newWebhookUrl }),
       };
       await createDestination(dest);
@@ -98,6 +113,11 @@
       newNtfyTopic = '';
       newNtfyTapUrl = typeof window !== 'undefined' ? window.location.origin : '';
       newDiscordUrl = '';
+      newTelegramToken = '';
+      newTelegramChatId = '';
+      newTelegramThreadId = '';
+      newAttachSnapshot = true;
+      newProgressInterval = 0;
       newWebhookUrl = '';
       addDestState = 'idle';
     } catch (e) {
@@ -158,6 +178,19 @@
                 <label class="field-lbl" for="dw-{dest.id}">Webhook URL</label>
                 <input id="dw-{dest.id}" class="input mono" type="text" bind:value={dest.discord_webhook_url} />
               </div>
+            {:else if dest.kind === 'telegram'}
+              <div class="field-row">
+                <label class="field-lbl" for="tg-token-{dest.id}">Bot token</label>
+                <input id="tg-token-{dest.id}" class="input mono" type="password" bind:value={dest.telegram_bot_token} placeholder="123456:ABC..." />
+              </div>
+              <div class="field-row">
+                <label class="field-lbl" for="tg-chat-{dest.id}">Chat ID</label>
+                <input id="tg-chat-{dest.id}" class="input mono" type="text" bind:value={dest.telegram_chat_id} placeholder="@channel or -100..." />
+              </div>
+              <div class="field-row">
+                <label class="field-lbl" for="tg-thread-{dest.id}">Topic ID</label>
+                <input id="tg-thread-{dest.id}" class="input mono" type="text" bind:value={dest.telegram_thread_id} placeholder="optional" />
+              </div>
             {:else if dest.kind === 'webhook'}
               <div class="field-row">
                 <label class="field-lbl" for="wh-{dest.id}">URL</label>
@@ -171,6 +204,7 @@
               <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.print_paused} /> Print paused</label>
               <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.print_resumed} /> Print resumed</label>
               <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.print_stopped} /> Print stopped</label>
+              <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.progress_milestone} /> Progress updates</label>
               <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.failure_notify} /> Failure risk</label>
               <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.failure_pause} /> Failure confirmed</label>
               <label class="tgl"><input type="checkbox" bind:checked={dest.toggles.auto_paused} /> Auto-paused</label>
@@ -184,6 +218,23 @@
               <label class="tgl error-tgl"><input type="checkbox" bind:checked={dest.toggles.id_not_match} /> ID not match</label>
               <label class="tgl error-tgl"><input type="checkbox" bind:checked={dest.toggles.auth_error} /> Auth error</label>
             </div>
+
+            <div class="field-row">
+              <label class="field-lbl" for="progress-{dest.id}">Progress</label>
+              <select id="progress-{dest.id}" class="input" bind:value={dest.progress_interval}>
+                <option value={0}>Off</option>
+                <option value={5}>Every 5%</option>
+                <option value={10}>Every 10%</option>
+                <option value={25}>Every 25%</option>
+                <option value={50}>Every 50%</option>
+              </select>
+            </div>
+            {#if dest.kind === 'telegram'}
+              <label class="tgl snapshot-tgl">
+                <input type="checkbox" bind:checked={dest.attach_snapshot} />
+                Attach camera snapshot to failure messages
+              </label>
+            {/if}
 
             <div class="dest-footer">
               <button class="btn sm primary" on:click={() => saveDest(dest)}>Save</button>
@@ -206,7 +257,7 @@
     <div class="row">
       <div class="row-label">
         <div class="row-title">Add destination</div>
-        <div class="row-sub">ntfy, Discord, or generic webhook.</div>
+        <div class="row-sub">ntfy, Discord, Telegram, or generic webhook.</div>
       </div>
       <button class="btn sm" on:click={() => { addingDest = true; addDestError = ''; addDestState = 'idle'; }}>+ Add</button>
     </div>
@@ -219,6 +270,7 @@
         <div class="kind-pills">
           <button class="kind-pill" class:active={newKind === 'ntfy'} on:click={() => (newKind = 'ntfy')}>ntfy</button>
           <button class="kind-pill" class:active={newKind === 'discord'} on:click={() => (newKind = 'discord')}>Discord</button>
+          <button class="kind-pill" class:active={newKind === 'telegram'} on:click={() => (newKind = 'telegram')}>Telegram</button>
           <button class="kind-pill" class:active={newKind === 'webhook'} on:click={() => (newKind = 'webhook')}>Webhook</button>
         </div>
       </div>
@@ -243,6 +295,33 @@
         <div class="field-row">
           <label class="field-lbl" for="new-dw">Webhook URL</label>
           <input id="new-dw" class="input mono" type="text" bind:value={newDiscordUrl} placeholder="https://discord.com/api/webhooks/…" />
+        </div>
+      {:else if newKind === 'telegram'}
+        <div class="field-row">
+          <label class="field-lbl" for="new-tg-token">Bot token</label>
+          <input id="new-tg-token" class="input mono" type="password" bind:value={newTelegramToken} placeholder="123456:ABC..." />
+        </div>
+        <div class="field-row">
+          <label class="field-lbl" for="new-tg-chat">Chat ID</label>
+          <input id="new-tg-chat" class="input mono" type="text" bind:value={newTelegramChatId} placeholder="@channel or -100..." />
+        </div>
+        <div class="field-row">
+          <label class="field-lbl" for="new-tg-thread">Topic ID</label>
+          <input id="new-tg-thread" class="input mono" type="text" bind:value={newTelegramThreadId} placeholder="optional" />
+        </div>
+        <label class="tgl snapshot-tgl">
+          <input type="checkbox" bind:checked={newAttachSnapshot} />
+          Attach camera snapshot to failure messages
+        </label>
+        <div class="field-row">
+          <label class="field-lbl" for="new-progress">Progress</label>
+          <select id="new-progress" class="input" bind:value={newProgressInterval}>
+            <option value={0}>Off</option>
+            <option value={5}>Every 5%</option>
+            <option value={10}>Every 10%</option>
+            <option value={25}>Every 25%</option>
+            <option value={50}>Every 50%</option>
+          </select>
         </div>
       {:else if newKind === 'webhook'}
         <div class="field-row">
@@ -295,6 +374,7 @@
   }
   .kind-ntfy { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
   .kind-discord { background: #ede9fe; color: #7c3aed; border: 1px solid #ddd6fe; }
+  .kind-telegram { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
   .kind-webhook { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
   .dest-label-txt { flex: 1; font-size: 13px; font-weight: 500; color: var(--text); }
   .save-err { font-size: 10.5px; color: var(--danger); background: var(--danger-dim); border: 1px solid rgba(192,57,74,0.3); border-radius: var(--radius-sm); padding: 1px 6px; }
@@ -307,6 +387,7 @@
 
   .toggles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 4px; }
   .tgl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .snapshot-tgl { margin-top: 2px; }
   .error-tgl { color: var(--danger); }
 
   .dest-footer { display: flex; align-items: center; gap: 8px; margin-top: 6px; }

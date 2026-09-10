@@ -1,0 +1,69 @@
+<svg width="1100" height="460" viewBox="0 0 1100 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">cc2-openwebui architecture</title>
+  <desc id="desc">A high level diagram showing browser clients, the Rust web server, SQLite state, Obico ML, camera snapshots, notifications, and the Elegoo CC2 printer on the local network.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f7fafc"/>
+      <stop offset="100%" stop-color="#eef4f8"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#123" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#4c6676"/>
+    </marker>
+    <style>
+      .card { fill: #ffffff; stroke: #ced9e2; stroke-width: 1.5; filter: url(#shadow); }
+      .title { font: 700 22px system-ui, -apple-system, Segoe UI, sans-serif; fill: #14232d; }
+      .label { font: 600 16px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1d3443; }
+      .muted { font: 500 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5d7280; }
+      .line { stroke: #4c6676; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .soft { fill: #e9f5f1; stroke: #99c7b8; }
+      .warn { fill: #fff5df; stroke: #e1bd66; }
+      .blue { fill: #edf5ff; stroke: #94bde8; }
+      .rose { fill: #fff0f2; stroke: #dda2ad; }
+    </style>
+  </defs>
+  <rect width="1100" height="460" rx="26" fill="url(#bg)"/>
+  <text class="title" x="44" y="52">cc2-openwebui Runtime</text>
+  <text class="muted" x="44" y="78">Docker container on Linux/Windows, browser-based control for Elegoo CC2</text>
+
+  <rect class="card blue" x="45" y="130" width="190" height="110" rx="12"/>
+  <text class="label" x="78" y="170">Browser UI</text>
+  <text class="muted" x="78" y="196">Desktop, tablet, mobile</text>
+  <text class="muted" x="78" y="218">German / English</text>
+
+  <rect class="card" x="330" y="105" width="250" height="160" rx="12"/>
+  <text class="label" x="378" y="147">Rust Web Server</text>
+  <text class="muted" x="378" y="174">Axum API + WebSocket</text>
+  <text class="muted" x="378" y="196">Printer manager</text>
+  <text class="muted" x="378" y="218">Camera proxy</text>
+
+  <rect class="card soft" x="335" y="315" width="240" height="88" rx="12"/>
+  <text class="label" x="382" y="351">SQLite + Files</text>
+  <text class="muted" x="382" y="376">Settings, events, snapshots</text>
+
+  <rect class="card warn" x="665" y="80" width="185" height="105" rx="12"/>
+  <text class="label" x="703" y="120">Obico ML</text>
+  <text class="muted" x="703" y="146">Spaghetti scoring</text>
+  <text class="muted" x="703" y="166">Object boxes</text>
+
+  <rect class="card rose" x="665" y="242" width="185" height="105" rx="12"/>
+  <text class="label" x="692" y="282">Notifications</text>
+  <text class="muted" x="692" y="308">Telegram, ntfy, Discord</text>
+  <text class="muted" x="692" y="328">Webhook</text>
+
+  <rect class="card" x="910" y="146" width="150" height="150" rx="14"/>
+  <text class="label" x="938" y="194">Elegoo CC2</text>
+  <text class="muted" x="938" y="220">MQTT 1883</text>
+  <text class="muted" x="938" y="242">Camera stream</text>
+  <text class="muted" x="938" y="264">LAN only</text>
+
+  <path class="line" d="M235 185 C270 185, 292 185, 330 185"/>
+  <path class="line" d="M580 165 C615 140, 628 130, 665 130"/>
+  <path class="line" d="M580 216 C615 250, 628 276, 665 294"/>
+  <path class="line" d="M455 265 L455 315"/>
+  <path class="line" d="M850 132 C878 160, 888 183, 910 205"/>
+  <path class="line" d="M850 295 C880 275, 890 254, 910 236"/>
+  <path class="line" d="M910 222 C850 215, 690 206, 580 194"/>
+</svg>

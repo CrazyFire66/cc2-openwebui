@@ -3,7 +3,7 @@
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import cc2Image from '../cc2.png';
-  import { scanNetwork, verifyPrinter, saveConfig } from '../../api';
+  import { scanNetwork, verifyPrinter, saveConfig, type DiscoveredPrinter } from '../../api';
   import { toErrorMessage } from '../errors';
 
   const dispatch = createEventDispatcher<{ complete: void }>();
@@ -14,30 +14,47 @@
 
   let scanning = false;
   let scanError = '';
-  let printers: Array<{ ip: string }> = [];
+  let printers: DiscoveredPrinter[] = [];
+  let scanSubnet = '';
+  let scannedSubnets: string[] = [];
   let selectedIp = '';
   let manualIp = '';
+  let pincode = '';
   let verifying = false;
   let verifyProgress = '';
   let savingPrinter = false;
+
+  $: pincodeValid = pincode === '' || /^[A-Za-z0-9]{6}$/.test(pincode);
+
+  function updatePincode(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    pincode = input.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 6);
+  }
 
   async function doScan() {
     scanning = true;
     scanError = '';
     printers = [];
+    scannedSubnets = [];
     substep = 'scan';
     try {
-      const result = await scanNetwork();
+      if (!pincodeValid) throw new Error('Pincode must be 6 letters or numbers.');
+      const result = await scanNetwork(scanSubnet, pincode);
       printers = result.printers;
-      if (printers.length === 0) scanError = "No CC2 printers found. Make sure it's on the same network.";
+      scannedSubnets = result.scanned_subnets ?? [];
+      if (printers.length === 0) {
+        scanError = scannedSubnets.length
+          ? `No CC2 printers found on ${scannedSubnets.map((s) => `${s}.0/24`).join(', ')}.`
+          : "No CC2 printers found. Make sure it's on the same network.";
+      }
     } catch (e) {
       scanError = toErrorMessage(e) || 'Network scan failed. Enter the IP manually.';
     }
     scanning = false;
   }
 
-  function selectPrinter(ip: string) {
-    selectedIp = ip;
+  function selectPrinter(printer: DiscoveredPrinter) {
+    selectedIp = printer.ip;
     manualIp = '';
     substep = 'configure';
   }
@@ -54,14 +71,15 @@
     substep = 'verify';
     const ip = (selectedIp || manualIp).trim();
     try {
+      if (!pincodeValid) throw new Error('Pincode must be 6 letters or numbers.');
       verifyProgress = 'Connecting to ' + ip + '…';
       await new Promise((r) => setTimeout(r, 300));
       verifyProgress = 'Identifying printer…';
-      const result = await verifyPrinter(ip, '');
+      const result = await verifyPrinter(ip, pincode);
       if (!result.success) throw new Error('Device responded but is not a CC2.');
       verifyProgress = 'Saving configuration…';
       savingPrinter = true;
-      await saveConfig(ip, result.printer_id, '');
+      await saveConfig(ip, result.printer_id, pincode);
       savingPrinter = false;
       dispatch('complete');
     } catch (e) {
@@ -76,6 +94,12 @@
       substep = 'configure';
     }
     verifying = false;
+  }
+
+  function printerBadge(printer: DiscoveredPrinter): string {
+    if (printer.verified) return 'CC2';
+    if (printer.needs_pincode) return 'PIN needed';
+    return 'Possible device';
   }
 </script>
 
@@ -113,7 +137,27 @@
     <div class="card-head">
       <span class="eyebrow">Step 1 · Printer</span>
       <h2>Scanning your network</h2>
-      <p>Looking for CC2 devices on your LAN…</p>
+      <p>{scannedSubnets.length ? `Looking on ${scannedSubnets.map((s) => `${s}.0/24`).join(', ')}` : 'Looking for CC2 devices on your LAN…'}</p>
+    </div>
+    <div class="scan-controls">
+      <label class="scan-field">
+        <span>Subnet</span>
+        <input class="input mono" bind:value={scanSubnet} placeholder="Auto or 192.168.150" disabled={scanning} />
+      </label>
+      <label class="scan-field">
+        <span>Pincode</span>
+        <input
+          class="input mono pin compact"
+          type="text"
+          value={pincode}
+          on:input={updatePincode}
+          placeholder="Optional"
+          maxlength="6"
+          autocomplete="off"
+          spellcheck="false"
+          disabled={scanning}
+        />
+      </label>
     </div>
     <div class="scan-stage">
       {#if scanning}
@@ -125,10 +169,10 @@
         </div>
         <div class="scan-line">Searching…</div>
       {:else if printers.length > 0}
-        <div class="found">Found {printers.length} printer{printers.length === 1 ? '' : 's'}</div>
+        <div class="found">Found {printers.length} candidate{printers.length === 1 ? '' : 's'}</div>
         <div class="list">
           {#each printers as p, i}
-            <button class="list-row" on:click={() => selectPrinter(p.ip)} in:fly={{ y: 4, duration: 200, delay: i * 60, easing: cubicOut }}>
+            <button class:unverified={!p.verified} class="list-row" on:click={() => selectPrinter(p)} in:fly={{ y: 4, duration: 200, delay: i * 60, easing: cubicOut }}>
               <span class="list-icon">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                   <rect x="3" y="5" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.3"/>
@@ -136,8 +180,11 @@
                   <circle cx="11" cy="8.5" r="0.7" fill="currentColor"/>
                 </svg>
               </span>
-              <span class="mono ip">{p.ip}</span>
-              <span class="chip accent sm">CC2</span>
+              <span class="list-main">
+                <span class="mono ip">{p.ip}</span>
+                {#if p.printer_id}<span class="mono printer-id">{p.printer_id}</span>{/if}
+              </span>
+              <span class="chip sm {p.verified ? 'accent' : 'warn-chip'}">{printerBadge(p)}</span>
               <span class="list-arrow">→</span>
             </button>
           {/each}
@@ -173,23 +220,27 @@
           <input id="ip" class="input mono" type="text" bind:value={manualIp} placeholder="192.168.1.100" />
         {/if}
       </div>
-      <div class="field pincode-disabled">
+      <div class="field">
         <label class="field-label" for="pin">Pincode</label>
         <input
           id="pin"
           class="input mono pin"
           type="text"
-          value=""
-          placeholder="Pincode disabled for now"
+          value={pincode}
+          on:input={updatePincode}
+          placeholder="Optional"
           maxlength="6"
-          disabled
+          autocomplete="off"
+          spellcheck="false"
         />
-        <span class="field-hint warn">Please disable pincode in your LAN Only settings. (Pincode Support Comming Soon)</span>
+        <span class:warn={!pincodeValid} class="field-hint">
+          {pincodeValid ? 'Leave empty for the default access code, or enter the 6-character printer code.' : 'Use exactly 6 letters or numbers.'}
+        </span>
       </div>
       {#if error}<div class="alert err">{error}</div>{/if}
       <div class="actions">
         <button class="btn ghost" on:click={() => { substep = selectedIp ? 'scan' : 'intro'; error = ''; }}>← Back</button>
-        <button class="btn primary" disabled={!(selectedIp || manualIp).trim()} on:click={doVerify}>Connect</button>
+        <button class="btn primary" disabled={!(selectedIp || manualIp).trim() || !pincodeValid} on:click={doVerify}>Connect</button>
       </div>
     </div>
   </section>
@@ -243,6 +294,10 @@
   @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 
   /* scan */
+  .scan-controls { display: grid; grid-template-columns: 1fr 190px; gap: 10px; margin: -4px 0 18px; }
+  .scan-field { display: flex; flex-direction: column; gap: 5px; }
+  .scan-field span { font-size: 10.5px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .pin.compact { letter-spacing: 0.18em; font-size: 13px; }
   .scan-stage { display: flex; flex-direction: column; align-items: center; gap: 14px; min-height: 180px; justify-content: center; padding: 10px 0; }
   .radar-wrap { position: relative; width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; }
   .radar-core { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
@@ -258,6 +313,9 @@
   .list-icon { width: 28px; height: 28px; border-radius: var(--radius); background: var(--surface2); color: var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .list-row:hover .list-icon { color: var(--accent); background: var(--surface3); }
   .list-row .ip { font-size: 13px; flex: 1; }
+  .list-row.unverified { border-style: dashed; }
+  .list-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+  .printer-id { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .list-arrow { color: var(--muted); }
 
   /* form */
@@ -265,8 +323,7 @@
   .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
   .field-label { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .field-hint { font-size: 11px; color: var(--muted); }
-  .pin { letter-spacing: 0.25em; text-transform: uppercase; font-size: 15px; }
-  .pincode-disabled .pin { opacity: 0.55; cursor: not-allowed; }
+  .pin { letter-spacing: 0.25em; font-size: 15px; }
   .field-hint.warn { color: var(--danger); }
 
   /* verify */
@@ -283,6 +340,7 @@
 
   .chip.sm { padding: 2px 6px; font-size: 10px; }
   .chip.accent { color: var(--accent); border-color: rgba(45,135,240,0.35); background: var(--accent-dim); }
+  .chip.warn-chip { color: var(--warning); border-color: rgba(215,155,45,0.35); background: rgba(215,155,45,0.08); }
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -291,5 +349,11 @@
     .hero-visual { order: -1; }
     .printer-frame { width: 180px; height: 180px; }
     .printer-img { width: 160px; }
+    .scan-controls { grid-template-columns: 1fr; }
+    .list-row { gap: 8px; padding: 11px 12px; }
+    .list-icon { width: 26px; height: 26px; }
+    .actions { flex-direction: column; align-items: stretch; }
+    .actions-right { justify-content: stretch; }
+    .actions-right .btn, .actions .btn { flex: 1; }
   }
 </style>

@@ -167,7 +167,7 @@ impl DetectionEngine {
                                     s.add_event_with_snapshot(
                                         EventKind::DetectionLogged,
                                         format!("Detection score {:.0}%", score * 100.0),
-                                        snapshot_name,
+                                        snapshot_name.clone(),
                                     );
                                 }
 
@@ -178,9 +178,10 @@ impl DetectionEngine {
                                         warn!(
                                             "[detection] notify threshold confirmed: score={score:.4}",
                                         );
-                                        s.add_event(
+                                        s.add_event_with_snapshot(
                                             EventKind::FailureNotifyThreshold,
                                             format!("Failure risk {:.0}% (threshold: {:.0}%)", score * 100.0, self.config.notify_threshold * 100.0),
+                                            snapshot_name.clone(),
                                         );
                                         // reset notify counter
                                         self.consecutive_notify = 0;
@@ -196,13 +197,15 @@ impl DetectionEngine {
                                         warn!(
                                             "[detection] pause threshold confirmed: rolling={rolling_avg:.4}",
                                         );
-                                        s.add_event(
+                                        s.add_event_with_snapshot(
                                             EventKind::FailurePauseThreshold,
                                             format!("Print failure confirmed (score: {:.0}%), pausing", rolling_avg * 100.0),
+                                            snapshot_name.clone(),
                                         );
-                                        s.add_event(
+                                        s.add_event_with_snapshot(
                                             EventKind::AutoPaused,
                                             "Print auto-paused by detection engine".to_string(),
+                                            snapshot_name.clone(),
                                         );
                                     }
                                 } else {

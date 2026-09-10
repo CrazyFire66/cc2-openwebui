@@ -174,4 +174,49 @@
     border-color: var(--border2);
     background: var(--surface3);
   }
+
+  @media (max-width: 520px) {
+    .topbar {
+      height: auto;
+      min-height: 48px;
+      padding: 8px 10px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .left, .right {
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .left {
+      flex: 1 1 auto;
+    }
+
+    .right {
+      margin-left: auto;
+    }
+
+    .brand-text {
+      gap: 4px;
+    }
+
+    .brand-sub,
+    .divider {
+      display: none;
+    }
+
+    .status-pill,
+    .ip-tag {
+      padding-left: 8px;
+      padding-right: 8px;
+      max-width: 150px;
+    }
+
+    .ip-tag span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
 </style>

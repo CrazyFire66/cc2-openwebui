@@ -9,18 +9,21 @@
   import SectionGeneral from './settings/SectionGeneral.svelte';
   import SectionDetection from './settings/SectionDetection.svelte';
   import SectionNotifications from './settings/SectionNotifications.svelte';
+  import SectionDebug from './settings/SectionDebug.svelte';
   import SectionLogs from './settings/SectionLogs.svelte';
   import SectionUI from './settings/SectionUI.svelte';
   import SectionDanger from './settings/SectionDanger.svelte';
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
-  type Section = 'general' | 'detection' | 'notifications' | 'logs' | 'ui_settings' | 'danger';
+  type Section = 'general' | 'detection' | 'notifications' | 'debug' | 'logs' | 'ui_settings' | 'danger';
   export let initialSection: string = 'general';
   let activeSection: Section = (initialSection as Section) || 'general';
 
   let settings: AppSettings = {
     printer: { ip: '', printer_id: '', pincode: '' },
+    printers: [],
+    active_printer_id: '',
     detection: { enabled: true, notify_threshold: 0.5, pause_threshold: 0.7, interval_secs: 15, confirmation_frames: 2, obico_url: 'http://localhost:3333' },
     notifications: { destinations: [] },
     server: { host: '0.0.0.0', port: 8484 },
@@ -50,6 +53,16 @@
     saveState = 'saving';
     errorMsg = '';
     try {
+      const pincode = settings.printer.pincode.trim();
+      if (pincode && !/^[A-Za-z0-9]{6}$/.test(pincode)) {
+        throw new Error('Pincode must be 6 letters or numbers.');
+      }
+      for (const profile of settings.printers ?? []) {
+        if (profile.pincode && !/^[A-Za-z0-9]{6}$/.test(profile.pincode)) {
+          throw new Error(`Pincode for ${profile.label || profile.ip} must be 6 letters or numbers.`);
+        }
+      }
+      settings = { ...settings, printer: { ...settings.printer, pincode } };
       await updateSettings(settings);
       saveState = 'saved';
       setTimeout(() => { if (saveState === 'saved') saveState = 'idle'; }, 2000);
@@ -71,12 +84,15 @@
       title: 'Features',
       items: [
         { id: 'detection', label: 'AI Detection', desc: 'Failure alerts', icon: 'eye' },
-        { id: 'notifications', label: 'Notifications', desc: 'ntfy, Discord', icon: 'bell' },
+        { id: 'notifications', label: 'Notifications', desc: 'ntfy, Discord, Telegram', icon: 'bell' },
       ],
     },
     {
       title: 'Diagnostics',
-      items: [{ id: 'logs', label: 'Activity Logs', desc: 'Events & errors', icon: 'log' }],
+      items: [
+        { id: 'debug', label: 'Debug', desc: 'Runtime status', icon: 'debug' },
+        { id: 'logs', label: 'Activity Logs', desc: 'Events & errors', icon: 'log' },
+      ],
     },
     {
       title: 'Advanced',
@@ -90,7 +106,8 @@
   const sectionMeta: Record<Section, { title: string; desc: string }> = {
     general: { title: 'Printer Connection', desc: 'The IP your CC2 exposes on the LAN.' },
     detection: { title: 'AI Failure Detection', desc: 'AI failure detection with Obico ML container.' },
-    notifications: { title: 'Notifications', desc: 'Push events via ntfy or Discord webhook. Add and configure notification destinations.' },
+    notifications: { title: 'Notifications', desc: 'Push events via ntfy, Discord, Telegram, or webhook. Add and configure notification destinations.' },
+    debug: { title: 'Debug', desc: 'Runtime status, scan diagnostics, and connection details.' },
     logs: { title: 'Activity Logs', desc: 'Connection events, print jobs, detections, etc' },
     ui_settings: { title: 'UI Settings', desc: 'Show or hide UI elements.' },
     danger: { title: 'Danger Zone', desc: 'Irreversible actions. Make sure you know what you are doing.' },
@@ -163,6 +180,11 @@
                     <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
                     <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
                   </svg>
+                {:else if s.icon === 'debug'}
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M5 4.5h6M4 8h8M5 11.5h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    <rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.3"/>
+                  </svg>
                 {:else}
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                     <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
@@ -188,11 +210,17 @@
         {#key activeSection}
           <div class="section-wrap" in:fade={{ duration: 180, easing: cubicOut }}>
             {#if activeSection === 'general'}
-              <SectionGeneral bind:printer={settings.printer} />
+              <SectionGeneral
+                bind:printer={settings.printer}
+                bind:printers={settings.printers}
+                bind:activePrinterId={settings.active_printer_id}
+              />
             {:else if activeSection === 'detection'}
               <SectionDetection bind:detection={settings.detection} />
             {:else if activeSection === 'notifications'}
               <SectionNotifications />
+            {:else if activeSection === 'debug'}
+              <SectionDebug />
             {:else if activeSection === 'logs'}
               <SectionLogs />
             {:else if activeSection === 'ui_settings'}
@@ -205,7 +233,7 @@
       </div>
     </div>
 
-    {#if activeSection !== 'logs' && activeSection !== 'danger' && activeSection !== 'ui_settings'}
+    {#if activeSection !== 'logs' && activeSection !== 'debug' && activeSection !== 'danger' && activeSection !== 'ui_settings'}
       <div class="modal-foot">
         <div class="foot-left">
           {#if saveState === 'error'}

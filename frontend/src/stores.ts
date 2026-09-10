@@ -17,7 +17,7 @@ export function showToast(message: string, type: Toast['type'] = 'error', durati
 }
 
 export interface DetectionBox {
-  x1: number; y1: number; x2: number; y2: number; confidence: number;
+  x1: number; y1: number; x2: number; y2: number; confidence: number; label?: string;
 }
 
 export interface DetectionPoint {
@@ -178,6 +178,7 @@ export interface AppEvent {
   kind: string;
   description: string;
   ts?: number;
+  snapshot?: string;
 }
 
 export interface DetectionStatus {

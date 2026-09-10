@@ -18,6 +18,13 @@ use super::state::{EventKind, PrinterEvent, PrinterState};
 use crate::config::AppConfig;
 use crate::error::PrinterError;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StartPrintSlotMap {
+    pub canvas_id: i64,
+    pub t: i64,
+    pub tray_id: i64,
+}
+
 // lifecycle config; mutate only in start/stop/update_config
 struct LifecycleState {
     raw_shutdown: Option<watch::Sender<bool>>,
@@ -388,21 +395,21 @@ impl PrinterManager {
 
     pub async fn pause(&self) -> Result<(), PrinterError> {
         info!("[cmd] pause_print");
-        self.rpc_cmd(METHOD_PAUSE_PRINT, None, 8).await?;
+        self.rpc_cmd(METHOD_PAUSE_PRINT, None, 90).await?;
         self.state.write().await.add_event(EventKind::CommandPause, "Print paused".to_string());
         Ok(())
     }
 
     pub async fn resume(&self) -> Result<(), PrinterError> {
         info!("[cmd] resume_print");
-        self.rpc_cmd(METHOD_RESUME_PRINT, None, 8).await?;
+        self.rpc_cmd(METHOD_RESUME_PRINT, None, 90).await?;
         self.state.write().await.add_event(EventKind::CommandResume, "Print resumed".to_string());
         Ok(())
     }
 
     pub async fn stop_print(&self) -> Result<(), PrinterError> {
         info!("[cmd] stop_print");
-        self.rpc_cmd(METHOD_STOP_PRINT, None, 8).await?;
+        self.rpc_cmd(METHOD_STOP_PRINT, None, 90).await?;
         self.state.write().await.add_event(EventKind::CommandStop, "Print stopped".to_string());
         Ok(())
     }
@@ -455,27 +462,39 @@ impl PrinterManager {
         tray_id: Option<i64>,
         tray_slot: Option<i64>,
         canvas_id: i64,
+        slot_map: Vec<StartPrintSlotMap>,
         timelapse: bool,
         bedlevel_force: bool,
     ) -> Result<(), PrinterError> {
-        let tray_id = tray_id.unwrap_or(0);
-        let t = tray_slot.unwrap_or(0);
-        info!("[cmd] start_print filename={filename} plate={plate} canvas={canvas_id} t={t} tray={tray_id}");
+        let slot_map = if slot_map.is_empty() {
+            match (tray_id, tray_slot) {
+                (Some(tray_id), Some(t)) => vec![StartPrintSlotMap { canvas_id, t, tray_id }],
+                _ => Vec::new(),
+            }
+        } else {
+            slot_map
+        };
+
+        info!("[cmd] start_print filename={filename} plate={plate} slots={}", slot_map.len());
         let print_layout = if plate == "smooth" { "B" } else { "A" };
+        let mut config = serde_json::json!({
+            "bedlevel_force": bedlevel_force,
+            "delay_video": timelapse,
+            "print_layout": print_layout,
+            "printer_check": true,
+        });
+        if !slot_map.is_empty() {
+            config["slot_map"] = serde_json::to_value(&slot_map).unwrap_or_else(|_| serde_json::json!([]));
+        }
+
         self.rpc_cmd(
             METHOD_START_PRINT,
             Some(serde_json::json!({
                 "filename": filename,
                 "storage_media": storage_media,
-                "config": {
-                    "bedlevel_force": bedlevel_force,
-                    "delay_video": timelapse,
-                    "print_layout": print_layout,
-                    "printer_check": true,
-                    "slot_map": [{"canvas_id": canvas_id, "t": t, "tray_id": tray_id}]
-                }
+                "config": config
             })),
-            15,
+            90,
         ).await?;
         self.state.write().await.add_event(
             EventKind::CommandStartPrint,

@@ -152,7 +152,59 @@
     }
     return `${formatSnapDate(tsFirst)} – ${formatSnapDate(tsLast)}`;
   }
+
+  function applyPreset(name: 'careful' | 'balanced' | 'aggressive') {
+    const presets = {
+      careful: { notify_threshold: 0.4, pause_threshold: 0.58, interval_secs: 10, confirmation_frames: 2 },
+      balanced: { notify_threshold: 0.5, pause_threshold: 0.7, interval_secs: 15, confirmation_frames: 2 },
+      aggressive: { notify_threshold: 0.62, pause_threshold: 0.82, interval_secs: 20, confirmation_frames: 3 },
+    };
+    detection = { ...detection, ...presets[name] };
+  }
 </script>
+
+<div class="group">
+  <div class="preset-row">
+    <div>
+      <div class="row-title">Detection preset</div>
+      <div class="row-sub">Choose a sensitivity profile, then fine tune the sliders below.</div>
+    </div>
+    <div class="preset-actions">
+      <button class="btn sm" on:click={() => applyPreset('careful')}>Careful</button>
+      <button class="btn sm" on:click={() => applyPreset('balanced')}>Balanced</button>
+      <button class="btn sm" on:click={() => applyPreset('aggressive')}>Strict</button>
+    </div>
+  </div>
+</div>
+
+<div class="group checks-group">
+  <div class="checks-grid">
+    <div class="check-card">
+      <div class="check-title">Spaghetti risk</div>
+      <div class="check-sub">Obico ML scores tangled extrusion and failed print patterns.</div>
+    </div>
+    <div class="check-card">
+      <div class="check-title">Object boxes</div>
+      <div class="check-sub">Detected objects/blobs are stored as boxes with confidence and optional labels.</div>
+    </div>
+    <div class="check-card">
+      <div class="check-title">Camera health</div>
+      <div class="check-sub">Camera loss and restore events can trigger notifications.</div>
+    </div>
+    <div class="check-card">
+      <div class="check-title">Confirmed frames</div>
+      <div class="check-sub">Multiple bad frames are required before alerting or auto-pausing.</div>
+    </div>
+    <div class="check-card">
+      <div class="check-title">Ignore zones</div>
+      <div class="check-sub">Marked areas are excluded from score decisions.</div>
+    </div>
+    <div class="check-card">
+      <div class="check-title">Auto protection</div>
+      <div class="check-sub">High rolling risk can pause the printer and send snapshots.</div>
+    </div>
+  </div>
+</div>
 
 <div class="group">
   <div class="row">
@@ -496,6 +548,29 @@
   .row-warn { margin-top: 4px; font-size: 11px; color: var(--danger); }
   .row-input { width: 100%; }
   .row-input.short { max-width: 140px; justify-self: end; }
+  .preset-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .preset-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .checks-group { padding: 12px; }
+  .checks-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .check-card {
+    min-height: 74px;
+    padding: 10px 11px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+  }
+  .check-title { font-size: 12px; font-weight: 600; color: var(--text); }
+  .check-sub { margin-top: 4px; font-size: 11px; line-height: 1.35; color: var(--muted); }
 
   .pill-val {
     display: inline-flex; align-items: center;
@@ -674,5 +749,9 @@
     .row { grid-template-columns: 1fr; gap: 8px; }
     .row-input.short { max-width: none; justify-self: stretch; }
     .input-suffix { justify-self: stretch; }
+    .preset-row { align-items: flex-start; flex-direction: column; }
+    .preset-actions { justify-content: stretch; width: 100%; }
+    .preset-actions .btn { flex: 1; }
+    .checks-grid { grid-template-columns: 1fr; }
   }
 </style>

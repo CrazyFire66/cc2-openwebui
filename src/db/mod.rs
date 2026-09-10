@@ -6,7 +6,8 @@ use std::str::FromStr;
 use tracing::{info, warn};
 
 use crate::config::{
-    AppConfig, DetectionConfig, DestinationKind, EventToggles, NotificationDestination, PrinterConfig,
+    sync_active_printer_profile, upsert_active_printer_profile, AppConfig, DetectionConfig,
+    DestinationKind, EventToggles, NotificationDestination, PrinterConfig, PrinterProfile,
 };
 use crate::printer::state::{DetectionPoint, EventKind, PrinterEvent};
 
@@ -26,6 +27,19 @@ async fn create_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             ip         TEXT NOT NULL DEFAULT '',
             printer_id TEXT NOT NULL DEFAULT '',
             pincode    TEXT NOT NULL DEFAULT ''
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS printer_profiles (
+            id         TEXT PRIMARY KEY,
+            label      TEXT NOT NULL DEFAULT '',
+            ip         TEXT NOT NULL DEFAULT '',
+            printer_id TEXT NOT NULL DEFAULT '',
+            pincode    TEXT NOT NULL DEFAULT '',
+            active     INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0
         )",
     )
     .execute(pool)
@@ -65,7 +79,12 @@ async fn create_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             ntfy_topic          TEXT,
             ntfy_tap_url        TEXT,
             discord_webhook_url TEXT,
+            telegram_bot_token  TEXT,
+            telegram_chat_id    TEXT,
+            telegram_thread_id  TEXT,
             webhook_url         TEXT,
+            progress_interval   INTEGER NOT NULL DEFAULT 0,
+            attach_snapshot     INTEGER NOT NULL DEFAULT 0,
             toggles_json        TEXT NOT NULL DEFAULT '{}'
         )",
     )
@@ -74,6 +93,31 @@ async fn create_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     // migration: add ntfy_tap_url if upgrading from older schema
     let _ = sqlx::query(
         "ALTER TABLE notification_destinations ADD COLUMN ntfy_tap_url TEXT",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE notification_destinations ADD COLUMN telegram_bot_token TEXT",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE notification_destinations ADD COLUMN telegram_chat_id TEXT",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE notification_destinations ADD COLUMN telegram_thread_id TEXT",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE notification_destinations ADD COLUMN progress_interval INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE notification_destinations ADD COLUMN attach_snapshot INTEGER NOT NULL DEFAULT 0",
     )
     .execute(pool)
     .await;
@@ -310,6 +354,33 @@ pub async fn load_app_config(pool: &SqlitePool) -> Result<AppConfig, sqlx::Error
         config.printer.pincode = row.get("pincode");
     }
 
+    let profile_rows = sqlx::query(
+        "SELECT id, label, ip, printer_id, pincode, active
+         FROM printer_profiles
+         ORDER BY active DESC, label ASC, ip ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    config.printers = profile_rows
+        .iter()
+        .map(|row| PrinterProfile {
+            id: row.get("id"),
+            label: row.get("label"),
+            ip: row.get("ip"),
+            printer_id: row.get("printer_id"),
+            pincode: row.get("pincode"),
+        })
+        .collect();
+
+    if let Some(row) = profile_rows
+        .iter()
+        .find(|row| row.get::<i64, _>("active") != 0)
+    {
+        config.active_printer_id = row.get("id");
+    }
+    sync_active_printer_profile(&mut config);
+
     if let Some(row) = sqlx::query(
         "SELECT enabled, interval_secs, notify_threshold, pause_threshold,
                 confirmation_frames, obico_url, exclude_zones_json
@@ -342,7 +413,9 @@ pub async fn load_app_config(pool: &SqlitePool) -> Result<AppConfig, sqlx::Error
 
     let rows = sqlx::query(
         "SELECT id, kind, enabled, label, ntfy_server, ntfy_topic, ntfy_tap_url,
-                discord_webhook_url, webhook_url, toggles_json
+                discord_webhook_url, telegram_bot_token, telegram_chat_id,
+                telegram_thread_id, webhook_url, progress_interval,
+                attach_snapshot, toggles_json
          FROM notification_destinations",
     )
     .fetch_all(pool)
@@ -355,6 +428,7 @@ pub async fn load_app_config(pool: &SqlitePool) -> Result<AppConfig, sqlx::Error
             let kind = match kind_str.as_str() {
                 "ntfy" => DestinationKind::Ntfy,
                 "discord" => DestinationKind::Discord,
+                "telegram" => DestinationKind::Telegram,
                 "webhook" => DestinationKind::Webhook,
                 _ => return None,
             };
@@ -369,7 +443,12 @@ pub async fn load_app_config(pool: &SqlitePool) -> Result<AppConfig, sqlx::Error
                 ntfy_topic: row.get("ntfy_topic"),
                 ntfy_tap_url: row.get("ntfy_tap_url"),
                 discord_webhook_url: row.get("discord_webhook_url"),
+                telegram_bot_token: row.get("telegram_bot_token"),
+                telegram_chat_id: row.get("telegram_chat_id"),
+                telegram_thread_id: row.get("telegram_thread_id"),
                 webhook_url: row.get("webhook_url"),
+                progress_interval: row.get::<i64, _>("progress_interval") as u8,
+                attach_snapshot: row.get::<i64, _>("attach_snapshot") != 0,
                 toggles,
             })
         })
@@ -388,6 +467,40 @@ pub async fn save_printer_config(pool: &SqlitePool, cfg: &PrinterConfig) -> Resu
     .execute(pool)
     .await?;
     Ok(())
+}
+
+pub async fn save_printer_profiles(
+    pool: &SqlitePool,
+    profiles: &[PrinterProfile],
+    active_id: &str,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM printer_profiles")
+        .execute(&mut *tx)
+        .await?;
+    for profile in profiles {
+        sqlx::query(
+            "INSERT INTO printer_profiles
+             (id, label, ip, printer_id, pincode, active, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))",
+        )
+        .bind(&profile.id)
+        .bind(&profile.label)
+        .bind(&profile.ip)
+        .bind(&profile.printer_id)
+        .bind(&profile.pincode)
+        .bind((profile.id == active_id) as i64)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn save_active_printer_state(pool: &SqlitePool, config: &mut AppConfig) -> Result<(), sqlx::Error> {
+    upsert_active_printer_profile(config);
+    save_printer_config(pool, &config.printer).await?;
+    save_printer_profiles(pool, &config.printers, &config.active_printer_id).await
 }
 
 pub async fn save_detection_config(pool: &SqlitePool, cfg: &DetectionConfig) -> Result<(), sqlx::Error> {
@@ -434,14 +547,17 @@ pub async fn upsert_destination(pool: &SqlitePool, dest: &NotificationDestinatio
     let kind_str = match dest.kind {
         DestinationKind::Ntfy => "ntfy",
         DestinationKind::Discord => "discord",
+        DestinationKind::Telegram => "telegram",
         DestinationKind::Webhook => "webhook",
     };
     let toggles_json = serde_json::to_string(&dest.toggles).unwrap_or_else(|_| "{}".to_string());
     sqlx::query(
         "INSERT OR REPLACE INTO notification_destinations
          (id, kind, enabled, label, ntfy_server, ntfy_topic, ntfy_tap_url,
-          discord_webhook_url, webhook_url, toggles_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          discord_webhook_url, telegram_bot_token, telegram_chat_id,
+          telegram_thread_id, webhook_url, progress_interval, attach_snapshot,
+          toggles_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&dest.id)
     .bind(kind_str)
@@ -451,7 +567,12 @@ pub async fn upsert_destination(pool: &SqlitePool, dest: &NotificationDestinatio
     .bind(&dest.ntfy_topic)
     .bind(&dest.ntfy_tap_url)
     .bind(&dest.discord_webhook_url)
+    .bind(&dest.telegram_bot_token)
+    .bind(&dest.telegram_chat_id)
+    .bind(&dest.telegram_thread_id)
     .bind(&dest.webhook_url)
+    .bind(dest.progress_interval as i64)
+    .bind(dest.attach_snapshot as i64)
     .bind(&toggles_json)
     .execute(pool)
     .await?;
@@ -468,6 +589,7 @@ pub async fn delete_destination(pool: &SqlitePool, id: &str) -> Result<(), sqlx:
 
 pub async fn reset_config(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM printer_config").execute(pool).await?;
+    sqlx::query("DELETE FROM printer_profiles").execute(pool).await?;
     sqlx::query("DELETE FROM detection_config").execute(pool).await?;
     sqlx::query("DELETE FROM server_config").execute(pool).await?;
     sqlx::query("DELETE FROM notification_destinations").execute(pool).await?;

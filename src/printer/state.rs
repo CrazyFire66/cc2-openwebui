@@ -132,6 +132,7 @@ pub struct PrinterState {
     pub events_total: u64,
     pub files: Vec<Value>,
     pub thumbnail_cache: HashMap<String, String>,
+    pub last_progress_milestone: Option<u8>,
     // suppress phase-change event before first seed
     pub prev_machine_status: Option<i64>,
     event_tx: broadcast::Sender<PrinterEvent>,
@@ -155,6 +156,7 @@ pub enum EventKind {
     PrintResumed,
     PrintStopped,
     PrintFinished,
+    ProgressMilestone(u8),
     FailureNotifyThreshold,
     FailurePauseThreshold,
     AutoPaused,
@@ -193,6 +195,7 @@ impl PrinterState {
             events_total: 0,
             files: Vec::new(),
             thumbnail_cache: HashMap::new(),
+            last_progress_milestone: None,
             prev_machine_status: None,
             event_tx,
         }
@@ -211,6 +214,7 @@ impl PrinterState {
         if old_state != new_state {
             self.record_state_transition(old_state, new_state);
         }
+        self.record_progress_milestone();
     }
 
     pub fn merge_delta(&mut self, delta: &Value) {
@@ -234,6 +238,7 @@ impl PrinterState {
         if old_state != new_state {
             self.record_state_transition(old_state, new_state);
         }
+        self.record_progress_milestone();
 
         let new_machine_code = self.full.machine_status.status;
         if self.prev_machine_status.is_some() && new_machine_code != old_machine_code {
@@ -289,6 +294,7 @@ impl PrinterState {
         self.full.print_status.print_duration = None;
         self.full.print_status.uuid = String::new();
         self.detection_score = 0.0;
+        self.last_progress_milestone = None;
     }
 
     pub fn print_state(&self) -> PrintState {
@@ -357,6 +363,7 @@ impl PrinterState {
     fn record_state_transition(&mut self, from: PrintState, to: PrintState) {
         match (&from, &to) {
             (PrintState::Idle, PrintState::Printing) => {
+                self.last_progress_milestone = None;
                 let filename = self.full.print_status.filename.clone();
                 self.add_event(
                     EventKind::PrintStarted,
@@ -370,13 +377,37 @@ impl PrinterState {
                 self.add_event(EventKind::PrintResumed, "Print resumed".to_string());
             }
             (PrintState::Printing, PrintState::Idle) => {
+                self.last_progress_milestone = None;
                 self.add_event(EventKind::PrintFinished, "Print finished".to_string());
             }
             (PrintState::Paused, PrintState::Idle) => {
+                self.last_progress_milestone = None;
                 self.add_event(EventKind::PrintStopped, "Print stopped".to_string());
             }
             _ => {}
         }
+    }
+
+    fn record_progress_milestone(&mut self) {
+        if !matches!(self.print_state(), PrintState::Printing) {
+            return;
+        }
+        let progress = self.full.machine_status.progress.clamp(0, 100) as u8;
+        if progress < 5 {
+            return;
+        }
+        let milestone = progress - (progress % 5);
+        if self
+            .last_progress_milestone
+            .is_some_and(|last| milestone <= last)
+        {
+            return;
+        }
+        self.last_progress_milestone = Some(milestone);
+        self.add_event(
+            EventKind::ProgressMilestone(milestone),
+            format!("Print progress: {milestone}%"),
+        );
     }
 }
 

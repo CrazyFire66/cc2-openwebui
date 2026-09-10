@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const REPO: &str = "DimeusDev/cc2-openwebui";
+const REPO: &str = "CrazyFire66/cc2-openwebui";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone)]

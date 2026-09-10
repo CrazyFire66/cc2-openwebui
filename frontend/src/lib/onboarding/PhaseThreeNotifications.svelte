@@ -42,8 +42,8 @@
     let tempId: string | null = null;
     try {
       const dest = notifMethod === 'discord'
-        ? { id: '', kind: 'discord' as const, enabled: true, label: 'Onboarding test', discord_webhook_url: discordWebhookUrl, toggles: defaultToggles() }
-        : { id: '', kind: 'ntfy' as const, enabled: true, label: 'Onboarding test', ntfy_server: ntfyServer, ntfy_topic: ntfyTopic, toggles: defaultToggles() };
+        ? { id: '', kind: 'discord' as const, enabled: true, label: 'Onboarding test', discord_webhook_url: discordWebhookUrl, progress_interval: 0, attach_snapshot: false, toggles: defaultToggles() }
+        : { id: '', kind: 'ntfy' as const, enabled: true, label: 'Onboarding test', ntfy_server: ntfyServer, ntfy_topic: ntfyTopic, progress_interval: 0, attach_snapshot: false, toggles: defaultToggles() };
       tempId = await createDestination(dest);
       await testDestination(tempId);
       notifTestState = 'sent';
@@ -63,14 +63,15 @@
       type DestInput = {
         id: string; kind: 'ntfy' | 'discord'; enabled: boolean; label: string;
         ntfy_server?: string; ntfy_topic?: string; discord_webhook_url?: string;
+        progress_interval: number; attach_snapshot: boolean;
         toggles: ReturnType<typeof defaultToggles>;
       };
       const dests: DestInput[] = [];
       if (!skipNotifs) {
         if (notifMethod === 'ntfy' && ntfyTopic) {
-          dests.push({ id: '', kind: 'ntfy', enabled: true, label: 'NTFY', ntfy_server: ntfyServer, ntfy_topic: ntfyTopic, toggles: defaultToggles() });
+          dests.push({ id: '', kind: 'ntfy', enabled: true, label: 'NTFY', ntfy_server: ntfyServer, ntfy_topic: ntfyTopic, progress_interval: 0, attach_snapshot: false, toggles: defaultToggles() });
         } else if (notifMethod === 'discord' && discordWebhookUrl) {
-          dests.push({ id: '', kind: 'discord', enabled: true, label: 'Discord', discord_webhook_url: discordWebhookUrl, toggles: defaultToggles() });
+          dests.push({ id: '', kind: 'discord', enabled: true, label: 'Discord', discord_webhook_url: discordWebhookUrl, progress_interval: 0, attach_snapshot: false, toggles: defaultToggles() });
         }
       }
       await completeOnboarding({

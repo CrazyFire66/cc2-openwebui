@@ -58,6 +58,7 @@ export interface EventToggles {
   print_resumed: boolean;
   print_stopped: boolean;
   print_finished_ok: boolean;
+  progress_milestone: boolean;
   failure_notify: boolean;
   failure_pause: boolean;
   auto_paused: boolean;
@@ -72,7 +73,7 @@ export interface EventToggles {
   detection_engine_error: boolean;
 }
 
-export type DestinationKind = 'ntfy' | 'discord' | 'webhook';
+export type DestinationKind = 'ntfy' | 'discord' | 'telegram' | 'webhook';
 
 export interface NotificationDestination {
   id: string;
@@ -83,7 +84,12 @@ export interface NotificationDestination {
   ntfy_topic?: string;
   ntfy_tap_url?: string;
   discord_webhook_url?: string;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+  telegram_thread_id?: string;
   webhook_url?: string;
+  progress_interval: number;
+  attach_snapshot: boolean;
   toggles: EventToggles;
 }
 
@@ -95,6 +101,7 @@ export function defaultToggles(): EventToggles {
     print_resumed: true,
     print_stopped: true,
     print_finished_ok: true,
+    progress_milestone: false,
     failure_notify: true,
     failure_pause: true,
     auto_paused: true,
@@ -126,8 +133,21 @@ export async function completeOnboarding(payload: OnboardingPayload): Promise<vo
   if (!res.ok) await apiError(res, 'Failed to complete onboarding');
 }
 
-export async function scanNetwork(subnet?: string): Promise<{ printers: Array<{ ip: string }> }> {
-  const res = await postJson(`${BASE}/api/setup/scan`, subnet ? { subnet } : {});
+export interface DiscoveredPrinter {
+  ip: string;
+  printer_id?: string | null;
+  verified?: boolean;
+  needs_pincode?: boolean;
+}
+
+export async function scanNetwork(
+  subnet?: string,
+  pincode?: string,
+): Promise<{ printers: DiscoveredPrinter[]; scanned_subnets?: string[] }> {
+  const payload: Record<string, string> = {};
+  if (subnet?.trim()) payload.subnet = subnet.trim();
+  if (pincode?.trim()) payload.pincode = pincode.trim();
+  const res = await postJson(`${BASE}/api/setup/scan`, payload);
   if (!res.ok) await apiError(res, 'Network scan failed');
   return res.json();
 }
@@ -252,6 +272,7 @@ export interface StartPrintOptions {
   tray_id?: number | null;
   tray_slot?: number | null;
   canvas_id?: number;
+  slot_map?: Array<{ canvas_id: number; t: number; tray_id: number }>;
   timelapse?: boolean;
   bedlevel_force?: boolean;
 }
@@ -264,6 +285,7 @@ export async function startPrint(filename: string, storage_media: string = 'loca
     tray_id: opts.tray_id ?? null,
     tray_slot: opts.tray_slot ?? null,
     canvas_id: opts.canvas_id ?? 0,
+    slot_map: opts.slot_map ?? [],
     timelapse: opts.timelapse ?? false,
     bedlevel_force: opts.bedlevel_force ?? true,
   });
@@ -331,6 +353,7 @@ export interface FileDetail {
   print_time?: number;
   total_layer?: number;
   total_filament_used?: number;
+  color_map?: Array<{ color?: string; name?: string; filament_name?: string; filament_type?: string; t?: number }>;
   thumbnail?: string;
   error_code?: number;
   [key: string]: unknown;
@@ -366,6 +389,7 @@ export interface DetectionBox {
   x2: number;
   y2: number;
   confidence: number;
+  label?: string;
 }
 
 export interface ExcludeZone {
@@ -493,6 +517,8 @@ export async function deleteSnapshot(filename: string): Promise<void> {
 
 export interface AppSettings {
   printer: { ip: string; printer_id: string; pincode: string };
+  printers: PrinterProfile[];
+  active_printer_id: string;
   detection: {
     enabled: boolean;
     notify_threshold: number;
@@ -506,6 +532,30 @@ export interface AppSettings {
   logging: { level: string };
 }
 
+export interface PrinterProfile {
+  id: string;
+  label: string;
+  ip: string;
+  printer_id: string;
+  pincode: string;
+}
+
+export interface DebugInfo {
+  version: string;
+  configured: boolean;
+  active_printer_id: string;
+  printer_count: number;
+  printer_ip: string;
+  printer_id: string;
+  connected: boolean;
+  connected_raw: boolean;
+  connected_ws: boolean;
+  detected_subnets: string[];
+  detection_enabled: boolean;
+  obico_url: string;
+  notification_destinations: number;
+}
+
 export async function getSettings(): Promise<AppSettings> {
   const res = await fetch(`${BASE}/api/settings`);
   if (!res.ok) await apiError(res, 'Failed to get settings');
@@ -517,20 +567,37 @@ export async function updateSettings(settings: Partial<AppSettings> | Record<str
   if (!res.ok) await apiError(res, 'Failed to save settings');
 }
 
+export async function getDebugInfo(): Promise<DebugInfo> {
+  const res = await fetch(`${BASE}/api/debug`);
+  if (!res.ok) await apiError(res, 'Failed to get debug info');
+  return res.json();
+}
+
+export async function exportSettings(): Promise<{ version: string; exported_at: number; config: AppSettings }> {
+  const res = await fetch(`${BASE}/api/settings/export`);
+  if (!res.ok) await apiError(res, 'Failed to export settings');
+  return res.json();
+}
+
+export async function importSettings(config: AppSettings): Promise<void> {
+  const res = await postJson(`${BASE}/api/settings/import`, { config });
+  if (!res.ok) await apiError(res, 'Failed to import settings');
+}
+
 
 export interface SnapshotEntry {
   filename: string;
   size: number;
   mtime: number;
   score_pct: number | null;
-  boxes: Array<{ x1: number; y1: number; x2: number; y2: number; confidence: number }>;
+  boxes: DetectionBox[];
 }
 
 export interface GroupSnapshot {
   ts: number;
   score: number;
   filename: string;
-  boxes: Array<{ x1: number; y1: number; x2: number; y2: number; confidence: number }>;
+  boxes: DetectionBox[];
 }
 
 export interface DetectionGroup {

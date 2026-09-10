@@ -33,6 +33,11 @@ pub fn format_event(event: &PrinterEvent) -> Payload {
             body: event.description.clone(),
             color: 0xe67e22,
         },
+        EventKind::ProgressMilestone(percent) => Payload {
+            title: format!("Print {percent}% Complete"),
+            body: event.description.clone(),
+            color: 0x3498db,
+        },
         EventKind::Connected => Payload {
             title: "Printer Connected".to_string(),
             body: event.description.clone(),

@@ -8,7 +8,7 @@ use tracing::{info, warn};
 use crate::config::{AppConfig, DestinationKind, EventToggles, NotificationDestination};
 use crate::printer::state::{EventKind, PrinterEvent, PrinterState};
 
-use super::{discord, ntfy, payload, webhook};
+use super::{discord, ntfy, payload, telegram, webhook};
 
 const COOLDOWN_SECS: u64 = 120;
 
@@ -75,8 +75,11 @@ impl NotificationManager {
                 if !event_matches_toggles(&event.kind, &dest.toggles) {
                     continue;
                 }
+                if !event_matches_destination_options(&event.kind, dest) {
+                    continue;
+                }
 
-                let key = format!("{}:{}", dest.id, event_kind_label(&event.kind));
+                let key = format!("{}:{}", dest.id, cooldown_label(&event.kind));
                 if let Some(last) = self.cooldowns.get(&key) {
                     if last.elapsed() < Duration::from_secs(COOLDOWN_SECS) {
                         continue;
@@ -85,9 +88,16 @@ impl NotificationManager {
                 self.cooldowns.insert(key, Instant::now());
 
                 let p = payload::format_event(event);
-                dispatch(dest, &p.title, &p.body, p.color).await;
+                dispatch(dest, event, &p.title, &p.body, p.color).await;
             }
         }
+    }
+}
+
+fn cooldown_label(kind: &EventKind) -> String {
+    match kind {
+        EventKind::ProgressMilestone(percent) => format!("progress_milestone_{percent}"),
+        _ => event_kind_label(kind).to_string(),
     }
 }
 
@@ -98,6 +108,7 @@ fn event_kind_label(kind: &EventKind) -> &'static str {
         EventKind::PrintPaused => "print_paused",
         EventKind::PrintResumed => "print_resumed",
         EventKind::PrintStopped => "print_stopped",
+        EventKind::ProgressMilestone(_) => "progress_milestone",
         EventKind::FailureNotifyThreshold => "failure_notify",
         EventKind::FailurePauseThreshold => "failure_pause",
         EventKind::AutoPaused => "auto_paused",
@@ -117,6 +128,16 @@ fn event_kind_label(kind: &EventKind) -> &'static str {
     }
 }
 
+fn event_matches_destination_options(kind: &EventKind, dest: &NotificationDestination) -> bool {
+    match kind {
+        EventKind::ProgressMilestone(percent) => {
+            let interval = dest.progress_interval;
+            interval > 0 && *percent > 0 && *percent % interval == 0
+        }
+        _ => true,
+    }
+}
+
 fn event_matches_toggles(kind: &EventKind, t: &EventToggles) -> bool {
     match kind {
         EventKind::PrintStarted => t.print_started,
@@ -124,6 +145,7 @@ fn event_matches_toggles(kind: &EventKind, t: &EventToggles) -> bool {
         EventKind::PrintPaused => t.print_paused,
         EventKind::PrintResumed => t.print_resumed,
         EventKind::PrintStopped => t.print_stopped,
+        EventKind::ProgressMilestone(_) => t.progress_milestone,
         EventKind::FailureNotifyThreshold => t.failure_notify,
         EventKind::FailurePauseThreshold => t.failure_pause,
         EventKind::AutoPaused => t.auto_paused,
@@ -143,7 +165,13 @@ fn event_matches_toggles(kind: &EventKind, t: &EventToggles) -> bool {
     }
 }
 
-async fn dispatch(dest: &NotificationDestination, title: &str, body: &str, color: u32) {
+async fn dispatch(dest: &NotificationDestination, event: &PrinterEvent, title: &str, body: &str, color: u32) {
+    let snapshot_path = event
+        .snapshot
+        .as_deref()
+        .filter(|_| dest.attach_snapshot)
+        .map(|filename| std::path::Path::new("snapshots").join(filename));
+
     match dest.kind {
         DestinationKind::Ntfy => match ntfy::send(dest, title, body).await {
             Ok(()) => info!("[notifications] ntfy '{}' sent: {title}", dest.label),
@@ -152,6 +180,10 @@ async fn dispatch(dest: &NotificationDestination, title: &str, body: &str, color
         DestinationKind::Discord => match discord::send(dest, title, body, color).await {
             Ok(()) => info!("[notifications] discord '{}' sent: {title}", dest.label),
             Err(e) => warn!("[notifications] discord '{}' failed: {e}", dest.label),
+        },
+        DestinationKind::Telegram => match telegram::send(dest, title, body, snapshot_path.as_deref()).await {
+            Ok(()) => info!("[notifications] telegram '{}' sent: {title}", dest.label),
+            Err(e) => warn!("[notifications] telegram '{}' failed: {e}", dest.label),
         },
         DestinationKind::Webhook => match webhook::send(dest, title, body).await {
             Ok(()) => info!("[notifications] webhook '{}' sent: {title}", dest.label),

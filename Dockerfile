@@ -1,7 +1,8 @@
 # keep toolchain stable across stages
 FROM rust:1.94-bullseye AS base
-RUN apt-get update \
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99no-check-valid-until \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -32,7 +33,7 @@ RUN cargo build --release --locked
 # runtime image already includes ML API
 FROM ghcr.io/thespaghettidetective/ml_api:latest
 
-RUN apt-get update \
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 

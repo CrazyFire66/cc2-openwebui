@@ -5,8 +5,16 @@
     selectedTrayId: number | null;
     selectedSlotIndex: number | null;
     selectedCanvasId: number;
+    filamentMappings: FilamentMapping[];
     timelapse: boolean;
     heatedBedLevel: boolean;
+  }
+
+  export interface FilamentMapping {
+    t: number;
+    trayId: number | null;
+    slotIndex: number | null;
+    canvasId: number;
   }
 </script>
 
@@ -26,8 +34,11 @@
   let plate: 'textured' | 'smooth' = 'textured';
   let timelapse = false;
   let heatedBedLevel = true;
+  let firstLayerChecked = false;
   let selectedTrayId: number | null = null;
   let selectedSlotIndex: number | null = null;
+  let mappingSeed = '';
+  let filamentMapping: Record<number, number | null> = {};
 
   let thumbUri = '';
   let detail: FileDetail | null = null;
@@ -110,17 +121,38 @@
   $: trayList = canvas?.tray_list ?? [];
 
   type Spool = { trayId: number; slotIndex: number; slot: number; color: string | null; material: string; empty: boolean };
+  type FileFilament = { t: number; color: string | null; name: string; material: string };
 
   $: spools = [0, 1, 2, 3].map<Spool>((i) => {
     const tray = trayList[i];
     if (!tray) return { trayId: -1, slotIndex: i, slot: i + 1, color: null, material: '-', empty: true };
-    const rawColor = (tray.filament_color as string | undefined)?.trim();
-    const hexOnly = rawColor?.startsWith('#') ? rawColor.slice(1) : rawColor;
-    const color = hexOnly && hexOnly.length >= 6 ? `#${hexOnly.slice(0, 6)}` : null;
+    const color = normalizeColor(tray.filament_color);
     // prefer filament_name over tray_type
     const material = (tray.filament_name || tray.tray_type || tray.filament_type || '-').toString() || '-';
     return { trayId: tray.tray_id ?? -1, slotIndex: i, slot: i + 1, color, material, empty: !color };
   });
+
+  $: colorMap = ((detail?.color_map as unknown[]) ?? (file?.color_map as unknown[]) ?? []) as Array<Record<string, unknown>>;
+  $: fileFilaments = colorMap
+    .map<FileFilament>((entry, i) => {
+      const rawT = entry.t ?? entry.tool ?? entry.index ?? i;
+      const t = Number.isFinite(Number(rawT)) ? Number(rawT) : i;
+      const name = String(entry.name ?? entry.filament_name ?? entry.filament_type ?? `T${t}`);
+      const material = String(entry.filament_type ?? entry.name ?? entry.filament_name ?? `T${t}`);
+      const color = normalizeColor(entry.color ?? entry.filament_color);
+      return { t, color, name, material };
+    })
+    .filter((entry, index, list) => list.findIndex((other) => other.t === entry.t) === index);
+
+  $: {
+    const nextSeed = open
+      ? `${file?.filename ?? file?.name ?? ''}|${fileFilaments.map(f => `${f.t}:${f.color ?? ''}`).join(',')}|${spools.map(s => `${s.slotIndex}:${s.trayId}:${s.color ?? ''}`).join(',')}`
+      : '';
+    if (nextSeed && nextSeed !== mappingSeed) {
+      filamentMapping = buildDefaultMappings();
+      mappingSeed = nextSeed;
+    }
+  }
 
   $: if (open && selectedTrayId === null && activeTrayId >= 0) {
     const match = spools.find(sp => sp.trayId === activeTrayId);
@@ -134,8 +166,11 @@
     plate = 'textured';
     timelapse = false;
     heatedBedLevel = true;
+    firstLayerChecked = false;
     selectedTrayId = null;
     selectedSlotIndex = null;
+    mappingSeed = '';
+    filamentMapping = {};
   }
 
   function handleClose() {
@@ -145,17 +180,64 @@
 
   function handlePrint() {
     if (!file) return;
+    const filamentMappings = fileFilaments
+      .map((f) => {
+        const sp = mappingForTool(f.t);
+        return {
+          t: f.t,
+          trayId: sp?.trayId ?? null,
+          slotIndex: sp?.slotIndex ?? null,
+          canvasId: activeCanvasId,
+        };
+      })
+      .filter((m) => m.trayId !== null);
+
     onPrint({
       filename: file.filename ?? file.name ?? '',
       plate,
       selectedTrayId,
       selectedSlotIndex,
       selectedCanvasId: activeCanvasId,
+      filamentMappings,
       timelapse,
       heatedBedLevel,
     });
     handleClose();
   }
+
+  function normalizeColor(raw: unknown): string | null {
+    const rawColor = typeof raw === 'string' ? raw.trim() : '';
+    const hexOnly = rawColor.startsWith('#') ? rawColor.slice(1) : rawColor;
+    return hexOnly && hexOnly.length >= 6 ? `#${hexOnly.slice(0, 6)}` : null;
+  }
+
+  function buildDefaultMappings(): Record<number, number | null> {
+    const next: Record<number, number | null> = {};
+    for (const filament of fileFilaments) {
+      const colorMatch = filament.color
+        ? spools.find((sp) => !sp.empty && sp.color?.toLowerCase() === filament.color?.toLowerCase())
+        : undefined;
+      const positionMatch = spools.find((sp) => !sp.empty && sp.slotIndex === filament.t);
+      const fallback = spools.find((sp) => !sp.empty);
+      next[filament.t] = (colorMatch ?? positionMatch ?? fallback)?.trayId ?? null;
+    }
+    return next;
+  }
+
+  function setMapping(t: number, value: string) {
+    filamentMapping = {
+      ...filamentMapping,
+      [t]: value === '' ? null : Number(value),
+    };
+  }
+
+  function mappingForTool(t: number): Spool | undefined {
+    const trayId = filamentMapping[t];
+    return spools.find((sp) => !sp.empty && sp.trayId === trayId);
+  }
+
+  $: allMapped = fileFilaments.length === 0 || fileFilaments.every((f) => mappingForTool(f.t));
+  $: canPrint = !!file && firstLayerChecked && allMapped;
 
   function formatTime(sec: number | undefined): string {
     if (!sec) return '--';
@@ -276,6 +358,36 @@
         <div class="section-title">Filament <span class="section-sub">(Canvas slots)</span></div>
         {#if spools.every(s => s.empty)}
           <div class="no-spools">No Canvas data from printer</div>
+        {:else if fileFilaments.length > 0}
+          <div class="mapping-list">
+            {#each fileFilaments as filament}
+              {@const mappedSpool = mappingForTool(filament.t)}
+              <div class="mapping-row">
+                <div class="tool-chip">
+                  <span
+                    class="tool-dot"
+                    style="background:{filament.color ?? 'var(--surface3)'}; color:{labelColor(filament.color)}"
+                  >
+                    T{filament.t}
+                  </span>
+                  <span class="tool-name" title={filament.name}>{filament.name}</span>
+                </div>
+                <select
+                  class="slot-select"
+                  value={mappedSpool?.trayId ?? ''}
+                  on:change={(e) => setMapping(filament.t, e.currentTarget.value)}
+                >
+                  <option value="">Not mapped</option>
+                  {#each spools.filter(sp => !sp.empty) as sp}
+                    <option value={sp.trayId}>Slot {sp.slot} - {sp.material}</option>
+                  {/each}
+                </select>
+              </div>
+            {/each}
+          </div>
+          {#if !allMapped}
+            <div class="mapping-warn">Map every filament before starting.</div>
+          {/if}
         {:else}
           <div class="spools-row">
             {#each spools as sp}
@@ -320,8 +432,12 @@
     </div>
 
     <div class="pm-actions">
+      <label class="safety-check">
+        <input type="checkbox" bind:checked={firstLayerChecked} />
+        <span>Watch first layer</span>
+      </label>
       <button class="pm-btn cancel" on:click={handleClose}>Cancel</button>
-      <button class="pm-btn print" on:click={handlePrint}>
+      <button class="pm-btn print" on:click={handlePrint} disabled={!canPrint}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M3 2l9 5-9 5V2z" fill="currentColor"/>
         </svg>
@@ -534,6 +650,66 @@
 
   .no-spools { font-size: 12px; color: var(--muted); font-style: italic; }
 
+  .mapping-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .mapping-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface2);
+  }
+  .tool-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  .tool-dot {
+    width: 32px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid rgba(255,255,255,0.16);
+    flex-shrink: 0;
+  }
+  .tool-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .slot-select {
+    width: 100%;
+    min-width: 0;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .mapping-warn {
+    font-size: 11.5px;
+    color: var(--warning);
+    padding: 7px 9px;
+    border: 1px solid rgba(192,120,40,0.35);
+    border-radius: var(--radius);
+    background: var(--warning-dim);
+  }
+
   /* options */
   .pm-options { gap: 10px; }
   .option-row {
@@ -569,9 +745,21 @@
   /* actions */
   .pm-actions {
     display: flex;
+    align-items: center;
     gap: 10px;
     padding: 14px 20px 18px;
     border-top: 1px solid var(--border);
+  }
+  .safety-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: max-content;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .safety-check input {
+    accent-color: var(--accent);
   }
   .pm-btn {
     flex: 1;
@@ -588,6 +776,11 @@
     transition: filter 0.15s;
   }
   .pm-btn:hover { filter: brightness(1.15); }
+  .pm-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+  }
   .pm-btn.cancel {
     background: var(--surface2);
     border-color: var(--border2);
@@ -601,4 +794,52 @@
   }
 
   .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 460px) {
+    .print-modal {
+      width: calc(100vw - 20px);
+      max-width: calc(100vw - 20px);
+      max-height: calc(100vh - 20px);
+      border-radius: 10px;
+    }
+    .pm-header,
+    .pm-body,
+    .pm-actions {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+    .pm-info {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .info-row {
+      padding: 7px 6px;
+      min-width: 0;
+    }
+    .info-val {
+      font-size: 12px;
+    }
+    .plate-cards,
+    .spools-row {
+      gap: 6px;
+    }
+    .spool-btn {
+      padding: 7px 4px;
+    }
+    .spool-mat {
+      max-width: 64px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mapping-row {
+      grid-template-columns: 1fr;
+    }
+    .pm-actions {
+      flex-wrap: wrap;
+    }
+    .safety-check {
+      width: 100%;
+    }
+  }
 </style>

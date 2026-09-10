@@ -98,6 +98,7 @@ async fn handle_socket(
                                     "kind": event_kind_str(&event.kind),
                                     "description": event.description,
                                     "ts": ts,
+                                    "snapshot": event.snapshot,
                                 }
                             });
                             if let Ok(text) = serde_json::to_string(&msg) {
@@ -166,6 +167,7 @@ fn event_kind_str(kind: &EventKind) -> &'static str {
         EventKind::PrintPaused => "print_paused",
         EventKind::PrintResumed => "print_resumed",
         EventKind::PrintStopped => "print_stopped",
+        EventKind::ProgressMilestone(_) => "progress_milestone",
         EventKind::FailureNotifyThreshold => "failure_notify",
         EventKind::FailurePauseThreshold => "failure_pause",
         EventKind::AutoPaused => "auto_paused",
@@ -188,6 +190,7 @@ fn build_state_msg(s: &PrinterState) -> serde_json::Value {
             "kind": event_kind_str(&e.kind),
             "description": e.description,
             "ts": ts,
+            "snapshot": e.snapshot,
         })
     }).collect();
     let phase = crate::printer::state::build_phase_info(

@@ -1,0 +1,55 @@
+<svg width="1100" height="430" viewBox="0 0 1100 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">cc2-openwebui notification flow</title>
+  <desc id="desc">A flow diagram showing printer and AI detection events, event filters, Telegram snapshot attachments, and multiple notification destinations.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#4e6270"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-25%" width="120%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#123" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .bg { fill: #f8faf9; }
+      .card { fill: #fff; stroke: #d0dbe1; stroke-width: 1.4; filter: url(#shadow); }
+      .accent { fill: #eff8f4; stroke: #99c9b7; }
+      .blue { fill: #edf6ff; stroke: #90bee9; }
+      .gold { fill: #fff6df; stroke: #e2be64; }
+      .pink { fill: #fff0f3; stroke: #dfa0ad; }
+      .title { font: 700 22px system-ui, -apple-system, Segoe UI, sans-serif; fill: #14232d; }
+      .label { font: 700 16px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1c3341; }
+      .muted { font: 500 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5c707e; }
+      .line { stroke: #4e6270; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1100" height="430" rx="26"/>
+  <text class="title" x="44" y="54">Notifications and AI print checks</text>
+  <text class="muted" x="44" y="80">Each destination can decide which events it receives and whether AI failure messages include a camera snapshot.</text>
+
+  <rect class="card blue" x="55" y="135" width="210" height="140" rx="12"/>
+  <text class="label" x="95" y="176">Event sources</text>
+  <text class="muted" x="95" y="204">Print start / pause / stop</text>
+  <text class="muted" x="95" y="226">Progress milestones</text>
+  <text class="muted" x="95" y="248">Camera status</text>
+
+  <rect class="card gold" x="55" y="300" width="210" height="78" rx="12"/>
+  <text class="label" x="95" y="334">AI detection</text>
+  <text class="muted" x="95" y="358">Score, boxes, snapshots</text>
+
+  <rect class="card accent" x="380" y="170" width="255" height="130" rx="12"/>
+  <text class="label" x="425" y="210">Event filters</text>
+  <text class="muted" x="425" y="238">Per-destination toggles</text>
+  <text class="muted" x="425" y="260">Percentage interval</text>
+  <text class="muted" x="425" y="282">Cooldown protection</text>
+
+  <rect class="card pink" x="750" y="120" width="280" height="210" rx="12"/>
+  <text class="label" x="802" y="162">Delivery targets</text>
+  <text class="muted" x="802" y="194">Telegram bot: users, groups, topics</text>
+  <text class="muted" x="802" y="218">Telegram photo on failure alerts</text>
+  <text class="muted" x="802" y="242">ntfy topic</text>
+  <text class="muted" x="802" y="266">Discord webhook</text>
+  <text class="muted" x="802" y="290">Generic webhook</text>
+
+  <path class="line" d="M265 205 C315 210, 335 220, 380 232"/>
+  <path class="line" d="M265 339 C315 328, 340 288, 380 260"/>
+  <path class="line" d="M635 235 C680 230, 710 225, 750 224"/>
+</svg>

@@ -1,12 +1,15 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
-  import { resetAll } from '../../api';
+  import { exportSettings, importSettings, resetAll } from '../../api';
   import { toErrorMessage } from '../errors';
 
   let resetConfirmOpen = false;
   let resetPhrase = '';
   let resetState: 'idle' | 'resetting' | 'error' = 'idle';
   let resetError = '';
+  let backupState: 'idle' | 'working' | 'done' | 'error' = 'idle';
+  let backupMsg = '';
+  let importInput: HTMLInputElement;
   const RESET_KEYWORD = 'RESET';
 
   function openResetConfirm() {
@@ -32,7 +35,70 @@
       resetError = toErrorMessage(e) || 'Reset failed';
     }
   }
+
+  async function downloadBackup() {
+    backupState = 'working';
+    backupMsg = '';
+    try {
+      const data = await exportSettings();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cc2-openwebui-settings-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      backupState = 'done';
+      backupMsg = 'Settings exported.';
+    } catch (e) {
+      backupState = 'error';
+      backupMsg = toErrorMessage(e) || 'Export failed';
+    }
+  }
+
+  async function uploadBackup(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    backupState = 'working';
+    backupMsg = '';
+    try {
+      const parsed = JSON.parse(await file.text());
+      const config = parsed.config ?? parsed;
+      await importSettings(config);
+      backupState = 'done';
+      backupMsg = 'Settings imported. Reloading...';
+      setTimeout(() => window.location.reload(), 800);
+    } catch (e) {
+      backupState = 'error';
+      backupMsg = toErrorMessage(e) || 'Import failed';
+    } finally {
+      input.value = '';
+    }
+  }
 </script>
+
+<div class="backup-card">
+  <div class="danger-head">
+    <span class="backup-badge">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <path d="M8 2v8M4.5 5.5L8 2l3.5 3.5M3 13h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <div>
+      <div class="danger-title">Backup and restore</div>
+      <div class="danger-sub">Export or import printer profiles, detection settings, server config, and notification destinations.</div>
+    </div>
+  </div>
+  <div class="backup-actions">
+    <button class="btn" on:click={downloadBackup} disabled={backupState === 'working'}>Export JSON</button>
+    <input bind:this={importInput} type="file" accept="application/json,.json" on:change={uploadBackup} style="display:none" />
+    <button class="btn" on:click={() => importInput.click()} disabled={backupState === 'working'}>Import JSON</button>
+  </div>
+  {#if backupMsg}
+    <div class="backup-msg" class:err={backupState === 'error'}>{backupMsg}</div>
+  {/if}
+</div>
 
 <div class="danger-card">
   <div class="danger-head">
@@ -106,6 +172,28 @@
     flex-direction: column;
     gap: 14px;
   }
+  .backup-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .backup-badge {
+    display: inline-flex;
+    width: 30px; height: 30px;
+    align-items: center; justify-content: center;
+    border-radius: 8px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid rgba(45,135,240,0.35);
+    flex-shrink: 0;
+  }
+  .backup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .backup-msg { font-size: 11.8px; color: var(--success); }
+  .backup-msg.err { color: var(--danger); }
   .danger-head { display: flex; align-items: flex-start; gap: 12px; }
   .danger-badge {
     display: inline-flex;

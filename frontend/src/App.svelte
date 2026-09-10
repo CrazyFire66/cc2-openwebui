@@ -14,6 +14,7 @@
   import Controls from './lib/Controls.svelte';
   import FileList from './lib/FileList.svelte';
   import Toast from './lib/Toast.svelte';
+  import { initLanguage, language, localize } from './lib/i18n';
   import { fly, fade } from 'svelte/transition';
 
   let showSettings = false;
@@ -106,6 +107,7 @@
   }
 
   onMount(() => {
+    initLanguage();
     resolveRoute();
     const onPop = () => resolveRoute();
     window.addEventListener('popstate', onPop);
@@ -132,6 +134,7 @@
 
 <svelte:window on:keydown={onKeydown} />
 
+<div use:localize={$language}>
 {#if route === 'loading'}
   <div class="splash">
     <div class="spinner"></div>
@@ -184,7 +187,7 @@
     <span class="update-text">{latestVersion ? `v${latestVersion} is available` : 'A new version is available'}</span>
     <a
       class="update-link"
-      href="https://github.com/DimeusDev/cc2-openwebui"
+      href="https://github.com/CrazyFire66/cc2-openwebui"
       target="_blank"
       rel="noopener noreferrer"
     >View on GitHub →</a>
@@ -195,6 +198,7 @@
     </button>
   </div>
 {/if}
+</div>
 
 <style>
   .splash {
@@ -237,6 +241,25 @@
   @media (max-width: 960px) {
     .grid {
       grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .grid {
+      padding: 10px 10px 20px;
+      gap: 10px;
+    }
+
+    .col-left, .col-right {
+      gap: 10px;
+    }
+
+    .update-banner {
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      max-width: none;
+      flex-wrap: wrap;
     }
   }
 
@@ -300,5 +323,15 @@
   @media (max-width: 480px) {
     .update-banner { left: 16px; right: 16px; bottom: 16px; max-width: none; }
     .update-text { font-size: 12px; }
+  }
+
+  @media (max-width: 640px) {
+    .update-banner {
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      max-width: none;
+      flex-wrap: wrap;
+    }
   }
 </style>

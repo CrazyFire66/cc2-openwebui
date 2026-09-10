@@ -14,6 +14,8 @@ pub struct Detection {
     pub x2: f64,
     pub y2: f64,
     pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 pub struct ObicoResult {
@@ -241,6 +243,7 @@ fn parse_single_detection(
                             x2: (cx + pw / 2.0) / img_w,
                             y2: (cy + ph / 2.0) / img_h,
                             confidence: conf,
+                            label: detection_label(arr.first()),
                         });
                     }
                 }
@@ -256,6 +259,7 @@ fn parse_single_detection(
                     x2: nums[2],
                     y2: nums[3],
                     confidence: nums[4],
+                    label: arr.get(5).and_then(|v| v.as_str()).map(str::to_string),
                 });
             }
         }
@@ -268,12 +272,30 @@ fn parse_single_detection(
         let y2 = det.get("y2").and_then(|v| v.as_f64())?;
         let conf = det.get("confidence")
             .or_else(|| det.get("score"))
+            .or_else(|| det.get("probability"))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        Some(Detection { x1, y1, x2, y2, confidence: conf })
+        let label = det
+            .get("label")
+            .or_else(|| det.get("class"))
+            .or_else(|| det.get("name"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        Some(Detection { x1, y1, x2, y2, confidence: conf, label })
     } else {
         None
     }
+}
+
+fn detection_label(value: Option<&serde_json::Value>) -> Option<String> {
+    let value = value?;
+    if let Some(s) = value.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(n) = value.as_i64() {
+        return Some(format!("class {n}"));
+    }
+    None
 }
 
 /// all detections excluded

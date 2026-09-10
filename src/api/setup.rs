@@ -1,11 +1,9 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, UdpSocket};
 use std::process::Command;
 
 use axum::extract::State;
 use axum::Json;
 use futures::StreamExt;
-use rand::Rng;
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::net::TcpStream;
@@ -13,7 +11,7 @@ use tokio::time::{timeout, Duration};
 use tracing::{error, info};
 
 use super::router::AppState;
-use crate::config::validate_pincode;
+use crate::config::{printer_profile_id, validate_pincode, PrinterProfile};
 use crate::error::{AppError, SetupError};
 
 const SCAN_TIMEOUT_MS: u64 = 500;
@@ -179,23 +177,37 @@ pub async fn reset_setup(State(state): State<AppState>) -> Result<Json<Value>, A
 #[derive(Deserialize)]
 pub struct ScanRequest {
     pub subnet: Option<String>,
+    pub pincode: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct ScanResponse {
     pub printers: Vec<DiscoveredPrinter>,
+    pub scanned_subnets: Vec<String>,
 }
 
 #[derive(Serialize)]
 pub struct DiscoveredPrinter {
     pub ip: String,
+    pub printer_id: Option<String>,
+    pub verified: bool,
+    pub needs_pincode: bool,
 }
 
 pub async fn scan_network(
     _state: State<AppState>,
     Json(req): Json<Option<ScanRequest>>,
 ) -> Result<Json<ScanResponse>, AppError> {
-    let subnets: Vec<String> = if let Some(subnet) = req.and_then(|r| r.subnet) {
+    let req = req.unwrap_or(ScanRequest { subnet: None, pincode: None });
+    let password = match req.pincode.as_deref().map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        Some(p) => {
+            validate_pincode(p).map_err(|_| AppError::Setup(SetupError::InvalidPincode))?;
+            p.to_string()
+        }
+        None => "123456".to_string(),
+    };
+
+    let subnets: Vec<String> = if let Some(subnet) = req.subnet {
         let parts: Vec<&str> = subnet.split('.').collect();
         if parts.len() >= 3 {
             vec![parts[0..3].join(".")]
@@ -215,14 +227,13 @@ pub async fn scan_network(
 
     info!("scanning {} addresses across {} subnet(s)", ips.len(), subnets.len());
 
-    // phase1 port probe
+    // phase1: find hosts that expose MQTT. PIN-protected printers may reject auth,
+    // so an open port is still useful and can be verified in the next setup step.
     let candidates: Vec<String> = futures::stream::iter(ips)
         .map(|ip| async move {
-            for port in [1883u16, 9001, 80] {
-                let addr: SocketAddr = format!("{ip}:{port}").parse().ok()?;
-                if let Ok(Ok(_)) = timeout(Duration::from_millis(SCAN_TIMEOUT_MS), TcpStream::connect(addr)).await {
-                    return Some(ip);
-                }
+            let addr: SocketAddr = format!("{ip}:1883").parse().ok()?;
+            if let Ok(Ok(_)) = timeout(Duration::from_millis(SCAN_TIMEOUT_MS), TcpStream::connect(addr)).await {
+                return Some(ip);
             }
             None
         })
@@ -231,60 +242,37 @@ pub async fn scan_network(
         .collect()
         .await;
 
-    info!("port probe found {} candidates, running protocol verification", candidates.len());
+    info!("mqtt port probe found {} candidates, running protocol verification", candidates.len());
 
-    // phase2 mqtt verify
+    // phase2: verify and enrich when the password is accepted. Keep unverified
+    // candidates visible so PIN-enabled printers are not silently hidden.
     let mut printers: Vec<DiscoveredPrinter> = futures::stream::iter(candidates)
-        .map(|ip| async move {
-            let verified = verify_elegoo_mqtt(&ip, 3).await;
-            if verified {
-                Some(DiscoveredPrinter { ip })
-            } else {
-                None
+        .map(|ip| {
+            let password = password.clone();
+            async move {
+                match crate::printer::discovery::discover_printer_id(&ip, "elegoo", &password, 2).await {
+                    Ok(printer_id) => DiscoveredPrinter {
+                        ip,
+                        printer_id: Some(printer_id),
+                        verified: true,
+                        needs_pincode: false,
+                    },
+                    Err(_) => DiscoveredPrinter {
+                        ip,
+                        printer_id: None,
+                        verified: false,
+                        needs_pincode: password == "123456",
+                    },
+                }
             }
         })
         .buffer_unordered(VERIFY_CONCURRENT)
-        .filter_map(|r| async move { r })
         .collect()
         .await;
 
     printers.sort_by(|a, b| a.ip.cmp(&b.ip));
-    info!("network scan confirmed {} printers", printers.len());
-    Ok(Json(ScanResponse { printers }))
-}
-
-/// verify mqtt handshake
-async fn verify_elegoo_mqtt(ip: &str, timeout_secs: u64) -> bool {
-    let suffix: String = (0..4).map(|_| rand::thread_rng().gen_range(0..10u8).to_string()).collect();
-    let client_id = format!("cc2_scan_{suffix}");
-
-    let mut opts = MqttOptions::new(&client_id, ip, 1883);
-    opts.set_credentials("elegoo", "123456");
-    opts.set_keep_alive(Duration::from_secs(5));
-    opts.set_clean_session(true);
-
-    let (client, mut eventloop) = AsyncClient::new(opts, 4);
-    if client.subscribe("elegoo/+/api_status", QoS::AtMostOnce).await.is_err() {
-        return false;
-    }
-
-    let result = timeout(Duration::from_secs(timeout_secs), async {
-        loop {
-            match eventloop.poll().await {
-                Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    if p.topic.starts_with("elegoo/") {
-                        return true;
-                    }
-                }
-                Ok(_) => {}
-                Err(_) => return false,
-            }
-        }
-    })
-    .await;
-
-    client.disconnect().await.ok();
-    matches!(result, Ok(true))
+    info!("network scan found {} mqtt candidate(s)", printers.len());
+    Ok(Json(ScanResponse { printers, scanned_subnets: subnets }))
 }
 
 #[derive(Deserialize)]
@@ -304,7 +292,7 @@ pub async fn verify_printer(
     _state: State<AppState>,
     Json(req): Json<VerifyRequest>,
 ) -> Result<Json<VerifyResponse>, AppError> {
-    let password = match req.pincode.as_deref() {
+    let password = match req.pincode.as_deref().map(|p| p.trim()) {
         Some(p) if !p.is_empty() => {
             validate_pincode(p).map_err(|_| AppError::Setup(SetupError::InvalidPincode))?;
             p.to_string()
@@ -354,7 +342,7 @@ pub async fn save_config(
         )));
     }
 
-    let pincode = req.pincode.unwrap_or_default();
+    let pincode = req.pincode.unwrap_or_default().trim().to_string();
     if !pincode.is_empty() {
         validate_pincode(&pincode).map_err(|_| AppError::Setup(SetupError::InvalidPincode))?;
     }
@@ -364,10 +352,21 @@ pub async fn save_config(
         config.printer.ip = req.ip.clone();
         config.printer.printer_id = req.printer_id.clone();
         config.printer.pincode = pincode;
-        let printer_cfg = config.printer.clone();
+        let profile_id = printer_profile_id(&config.printer.ip, &config.printer.printer_id);
+        config.active_printer_id = profile_id.clone();
+        let mut profile = PrinterProfile::from_config(profile_id.clone(), &config.printer);
+        if let Some(existing) = config.printers.iter().find(|p| p.id == profile_id) {
+            profile.label = existing.label.clone();
+        }
+        if let Some(existing) = config.printers.iter_mut().find(|p| p.id == profile_id) {
+            *existing = profile;
+        } else {
+            config.printers.push(profile);
+        }
+        let mut config_snapshot = config.clone();
         drop(config);
 
-        crate::db::save_printer_config(&state.db, &printer_cfg).await
+        crate::db::save_active_printer_state(&state.db, &mut config_snapshot).await
             .map_err(|e| AppError::Config(crate::error::ConfigError::Db(e)))?;
         info!("printer config saved to db");
     }
@@ -389,8 +388,27 @@ pub async fn save_config(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
-fn detect_local_subnets() -> Vec<String> {
+pub(crate) fn detect_local_subnets() -> Vec<String> {
     let mut subnets = Vec::new();
+
+    fn push_ipv4_subnet(subnets: &mut Vec<String>, ip: &str) {
+        let parts: Vec<&str> = ip.split('.').collect();
+        if parts.len() == 4 && parts[0] != "127" {
+            let subnet = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
+            if !subnets.contains(&subnet) {
+                subnets.push(subnet);
+            }
+        }
+    }
+
+    // works in lean containers where the `ip` command may not be installed
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                push_ipv4_subnet(&mut subnets, &addr.ip().to_string());
+            }
+        }
+    }
 
     // parse ip addr
     if let Ok(output) = Command::new("ip").args(["addr"]).output() {
@@ -400,13 +418,7 @@ fn detect_local_subnets() -> Vec<String> {
                 if trimmed.starts_with("inet ") && !trimmed.contains("127.0.0.1") {
                     if let Some(cidr) = trimmed.split_whitespace().nth(1) {
                         let ip_part = cidr.split('/').next().unwrap_or("");
-                        let parts: Vec<&str> = ip_part.split('.').collect();
-                        if parts.len() == 4 {
-                            let subnet = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
-                            if !subnets.contains(&subnet) {
-                                subnets.push(subnet);
-                            }
-                        }
+                        push_ipv4_subnet(&mut subnets, ip_part);
                     }
                 }
             }
@@ -421,13 +433,7 @@ fn detect_local_subnets() -> Vec<String> {
                     if !line.starts_with("default") {
                         if let Some(prefix) = line.split_whitespace().next() {
                             let ip_str = prefix.split('/').next().unwrap_or("");
-                            let parts: Vec<&str> = ip_str.split('.').collect();
-                            if parts.len() == 4 {
-                                let subnet = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
-                                if !subnets.contains(&subnet) {
-                                    subnets.push(subnet);
-                                }
-                            }
+                            push_ipv4_subnet(&mut subnets, ip_str);
                         }
                     }
                 }

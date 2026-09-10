@@ -6,6 +6,7 @@ use tracing::debug;
 
 use super::router::AppState;
 use crate::error::AppError;
+use crate::printer::manager::StartPrintSlotMap;
 
 #[derive(serde::Serialize)]
 pub struct PrinterStatusResponse {
@@ -58,6 +59,8 @@ pub struct PrintRequest {
     #[serde(default)]
     pub canvas_id: i64,
     #[serde(default)]
+    pub slot_map: Vec<StartPrintSlotMap>,
+    #[serde(default)]
     pub timelapse: bool,
     #[serde(default = "default_true")]
     pub bedlevel_force: bool,
@@ -89,6 +92,7 @@ pub async fn start_print(
     state.manager.start_print(
         &req.filename, &req.storage_media, &req.plate,
         req.tray_id, req.tray_slot, req.canvas_id,
+        req.slot_map,
         req.timelapse, req.bedlevel_force,
     ).await?;
     Ok(Json(serde_json::json!({ "ok": true })))

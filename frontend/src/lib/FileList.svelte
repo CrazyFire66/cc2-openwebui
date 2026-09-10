@@ -84,6 +84,13 @@
         tray_id: opts.selectedTrayId,
         tray_slot: opts.selectedSlotIndex,
         canvas_id: opts.selectedCanvasId,
+        slot_map: opts.filamentMappings
+          .filter((m) => m.trayId !== null)
+          .map((m) => ({
+            canvas_id: m.canvasId,
+            t: m.t,
+            tray_id: m.trayId as number,
+          })),
         timelapse: opts.timelapse,
         bedlevel_force: opts.heatedBedLevel,
       });
@@ -229,7 +236,7 @@
             <tbody>
               {#each displayFiles as file}
                 <tr class="file-row" on:click={() => openPrintModal(file)}>
-                  <td class="col-name">
+                  <td class="col-name" data-label="File">
                     <div class="filename-cell">
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                         <rect x="1" y="1" width="10" height="10" rx="2" stroke="var(--muted)" stroke-width="1" fill="none"/>
@@ -238,10 +245,10 @@
                       <span title={file.filename ?? file.name ?? ''}>{shortName(file.filename ?? file.name ?? '')}</span>
                     </div>
                   </td>
-                  <td class="col-size mono">{formatSize(+(file.size ?? file.file_size ?? 0))}</td>
-                  <td class="col-layer mono">{file.total_layer ?? file.layer ?? file.layers ?? '--'}</td>
-                  <td class="col-date">{formatDate(+(file.create_time ?? file.created ?? 0))}</td>
-                  <td class="col-action">
+                  <td class="col-size mono" data-label="Size">{formatSize(+(file.size ?? file.file_size ?? 0))}</td>
+                  <td class="col-layer mono" data-label="Layers">{file.total_layer ?? file.layer ?? file.layers ?? '--'}</td>
+                  <td class="col-date" data-label="Created">{formatDate(+(file.create_time ?? file.created ?? 0))}</td>
+                  <td class="col-action" data-label="Print">
                     <button class="print-btn" on:click|stopPropagation={() => openPrintModal(file)} title="Print this file">
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                         <path d="M2.5 1.5l8 4.5-8 4.5V1.5z" fill="currentColor"/>
@@ -428,4 +435,97 @@
     transition: filter 0.15s;
   }
   .print-btn:hover { filter: brightness(1.2); }
+
+  @media (max-width: 560px) {
+    .card-header {
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px;
+    }
+
+    .header-right {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .import-btn {
+      padding: 4px 8px;
+    }
+
+    .tabs {
+      padding: 0 10px;
+      overflow-x: auto;
+    }
+
+    .tab {
+      flex: 1;
+      min-width: 86px;
+      padding-left: 10px;
+      padding-right: 10px;
+    }
+
+    .table-wrap {
+      overflow-x: visible;
+      padding: 10px;
+    }
+
+    table,
+    tbody,
+    tr,
+    td {
+      display: block;
+      width: 100%;
+    }
+
+    thead {
+      display: none;
+    }
+
+    tbody tr.file-row {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface2);
+      padding: 9px 10px;
+      margin-bottom: 8px;
+    }
+
+    tbody tr.file-row:last-child {
+      margin-bottom: 0;
+    }
+
+    td {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 5px 0;
+      border: none;
+    }
+
+    td::before {
+      content: attr(data-label);
+      flex-shrink: 0;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .col-name,
+    .col-size,
+    .col-layer,
+    .col-date,
+    .col-action {
+      min-width: 0;
+      width: 100%;
+      text-align: right;
+    }
+
+    .filename-cell {
+      max-width: min(240px, 58vw);
+      justify-content: flex-end;
+    }
+  }
 </style>

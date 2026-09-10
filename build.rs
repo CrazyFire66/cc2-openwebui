@@ -6,14 +6,14 @@ fn main() {
     println!("cargo:rerun-if-changed=frontend/package.json");
     println!("cargo:rerun-if-changed=frontend/vite.config.ts");
 
+    if std::env::var("SKIP_FRONTEND_BUILD").is_ok() {
+        return;
+    }
+
     let status = Command::new("sh")
         .arg("-c")
         .arg("cd frontend && npm install && npm run build")
         .status();
-
-    if std::env::var("SKIP_FRONTEND_BUILD").is_ok() {
-        return;
-    }
 
     match status {
         Ok(s) if s.success() => {}

@@ -1,8 +1,9 @@
-<script>
+<script lang="ts">
   import { get } from 'svelte/store';
   import { ui_settings } from '../../stores';
+  import { language, setLanguage } from '../i18n';
 
-  function toggleSwitch(id) {
+  function toggleSwitch(id: string) {
     ui_settings.update(settings =>
       settings.map(switchItem =>
         switchItem.id === id
@@ -21,7 +22,28 @@
     localStorage.setItem('ui_settings', JSON.stringify($ui_settings));  
   }  
 
+  function onLanguageChange(e: Event) {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    setLanguage(value === 'de' ? 'de' : 'en');
+  }
+
 </script>
+
+<div class="group lang-group">
+  <div class="row">
+    <span class="row-label">Interface language</span>
+    <div class="row-input">
+      <select
+        class="input"
+        value={$language}
+        on:change={onLanguageChange}
+      >
+        <option value="en">English</option>
+        <option value="de">German</option>
+      </select>
+    </div>
+  </div>
+</div>
 
 <div class="group">
   {#each $ui_settings as switchItem (switchItem.id)}
@@ -48,6 +70,7 @@
     max-width: 200px;  /* Maximale Breite (kannst du anpassen) */
     margin-left: 0 auto;    /* Zentriert den Rahmen */
   }
+  .lang-group { margin-bottom: 10px; max-width: 320px; }
 
   .row {
     display: grid;
@@ -68,5 +91,15 @@
   .row-input {
     width: 100%;
     justify-self: end;
+  }
+  .input {
+    width: 100%;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 12px;
+    padding: 0 8px;
   }
 </style>
